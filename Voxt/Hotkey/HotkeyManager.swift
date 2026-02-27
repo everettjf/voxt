@@ -59,9 +59,11 @@ class HotkeyManager {
 
     private func handleEvent(type: CGEventType, event: CGEvent) {
         let hotkey = HotkeyPreference.load()
+        let triggerMode = HotkeyPreference.loadTriggerMode()
         let keyCode = UInt16(event.getIntegerValueField(.keyboardEventKeycode))
         let flags = event.flags
         let requiredFlags = cgFlags(from: hotkey.modifiers)
+        let isAutoRepeat = event.getIntegerValueField(.keyboardEventAutorepeat) != 0
 
         if hotkey.keyCode == HotkeyPreference.modifierOnlyKeyCode {
             guard type == .flagsChanged else { return }
@@ -80,12 +82,29 @@ class HotkeyManager {
 
         switch type {
         case .keyDown:
-            if keyCode == hotkey.keyCode && flagsMatch && !isKeyDown {
+            guard keyCode == hotkey.keyCode, flagsMatch, !isAutoRepeat else { return }
+
+            if triggerMode == .tap {
+                // Tap mode should react to every physical key press and must not rely on
+                // seeing the previous key-up event to recover.
+                emitKeyDown()
+                return
+            }
+
+            if !isKeyDown {
                 isKeyDown = true
                 activeKeyCode = keyCode
                 emitKeyDown()
             }
         case .keyUp:
+            if triggerMode == .tap {
+                if activeKeyCode == keyCode {
+                    activeKeyCode = nil
+                }
+                emitKeyUp()
+                return
+            }
+
             if isKeyDown, activeKeyCode == keyCode {
                 isKeyDown = false
                 activeKeyCode = nil

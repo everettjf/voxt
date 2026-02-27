@@ -2,6 +2,7 @@ import Foundation
 import Speech
 import AVFoundation
 import Combine
+import AudioToolbox
 
 @MainActor
 class SpeechTranscriber: ObservableObject, TranscriberProtocol {
@@ -14,6 +15,7 @@ class SpeechTranscriber: ObservableObject, TranscriberProtocol {
     private var recognitionRequest: SFSpeechAudioBufferRecognitionRequest?
     private var recognitionTask: SFSpeechRecognitionTask?
     private let audioEngine = AVAudioEngine()
+    private var preferredInputDeviceID: AudioDeviceID?
 
     private var finalizeTimeoutTask: Task<Void, Never>?
     private var hasDeliveredFinalResult = false
@@ -22,6 +24,10 @@ class SpeechTranscriber: ObservableObject, TranscriberProtocol {
 
     init() {
         speechRecognizer = SFSpeechRecognizer(locale: Locale.current)
+    }
+
+    func setPreferredInputDevice(_ deviceID: AudioDeviceID?) {
+        preferredInputDeviceID = deviceID
     }
 
     func requestPermissions() async -> Bool {
@@ -113,6 +119,7 @@ class SpeechTranscriber: ObservableObject, TranscriberProtocol {
         recognitionRequest = request
 
         let inputNode = audioEngine.inputNode
+        applyPreferredInputDeviceIfNeeded(inputNode: inputNode)
         inputNode.installTap(onBus: 0, bufferSize: 1024, format: nil) { [weak self] buffer, _ in
             guard let self else { return }
             self.recognitionRequest?.append(buffer)
@@ -173,5 +180,22 @@ class SpeechTranscriber: ObservableObject, TranscriberProtocol {
         }
         recognitionTask = nil
         recognitionRequest = nil
+    }
+
+    private func applyPreferredInputDeviceIfNeeded(inputNode: AVAudioInputNode) {
+        guard let preferredInputDeviceID else { return }
+        guard let audioUnit = inputNode.audioUnit else { return }
+        var deviceID = preferredInputDeviceID
+        let status = AudioUnitSetProperty(
+            audioUnit,
+            kAudioOutputUnitProperty_CurrentDevice,
+            kAudioUnitScope_Global,
+            0,
+            &deviceID,
+            UInt32(MemoryLayout<AudioDeviceID>.size)
+        )
+        if status != noErr {
+            VoxtLog.warning("Unable to switch input device. status=\(status)")
+        }
     }
 }

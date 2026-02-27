@@ -1,0 +1,125 @@
+import SwiftUI
+import CoreAudio
+
+struct GeneralSettingsView: View {
+    @AppStorage(AppPreferenceKey.selectedInputDeviceID) private var selectedInputDeviceIDRaw = 0
+    @AppStorage(AppPreferenceKey.interactionSoundsEnabled) private var interactionSoundsEnabled = true
+    @AppStorage(AppPreferenceKey.launchAtLogin) private var launchAtLogin = false
+    @AppStorage(AppPreferenceKey.showInDock) private var showInDock = false
+
+    @State private var inputDevices: [AudioInputDevice] = []
+    @State private var launchAtLoginError: String?
+    @State private var isSyncingLaunchAtLoginState = false
+
+    private var selectedInputDeviceID: AudioDeviceID {
+        AudioDeviceID(selectedInputDeviceIDRaw)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            GroupBox {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Audio")
+                        .font(.headline)
+
+                    HStack(alignment: .firstTextBaseline) {
+                        Text("Microphone")
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        Picker("Microphone", selection: $selectedInputDeviceIDRaw) {
+                            ForEach(inputDevices) { device in
+                                Text(device.name).tag(Int(device.id))
+                            }
+                        }
+                        .frame(width: 260)
+                    }
+
+                    Toggle("Interaction Sounds", isOn: $interactionSoundsEnabled)
+                    Text("Play a short start chime when recording begins and an end chime when transcription completes.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(8)
+            }
+
+            GroupBox {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("App Behavior")
+                        .font(.headline)
+
+                    Toggle("Launch at Login", isOn: $launchAtLogin)
+                    Text("Automatically start Voxt when your Mac starts.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+
+                    Toggle("Show in Dock", isOn: $showInDock)
+                    Text("Show Voxt in your Mac Dock for quick access.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+
+                    if let launchAtLoginError {
+                        Text(launchAtLoginError)
+                            .font(.caption)
+                            .foregroundStyle(.red)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(8)
+            }
+        }
+        .onAppear {
+            refreshInputDevices()
+            if selectedInputDeviceIDRaw == 0,
+               let defaultDeviceID = AudioInputDeviceManager.defaultInputDeviceID() {
+                selectedInputDeviceIDRaw = Int(defaultDeviceID)
+            }
+
+            Task {
+                let status = AppBehaviorController.launchAtLoginIsEnabled()
+                await MainActor.run {
+                    isSyncingLaunchAtLoginState = true
+                    if status != launchAtLogin {
+                        launchAtLogin = status
+                    }
+                    isSyncingLaunchAtLoginState = false
+                }
+            }
+            AppBehaviorController.applyDockVisibility(showInDock: showInDock)
+        }
+        .onChange(of: launchAtLogin) { _, newValue in
+            if isSyncingLaunchAtLoginState { return }
+            Task {
+                do {
+                    try AppBehaviorController.setLaunchAtLogin(newValue)
+                    await MainActor.run { launchAtLoginError = nil }
+                } catch {
+                    await MainActor.run {
+                        launchAtLogin.toggle()
+                        launchAtLoginError = "Unable to change login item: \(error.localizedDescription)"
+                    }
+                }
+            }
+        }
+        .onChange(of: showInDock) { _, newValue in
+            AppBehaviorController.applyDockVisibility(showInDock: newValue)
+        }
+    }
+
+    private func refreshInputDevices() {
+        inputDevices = AudioInputDeviceManager.availableInputDevices()
+        if inputDevices.isEmpty {
+            selectedInputDeviceIDRaw = 0
+            return
+        }
+
+        let selectedExists = inputDevices.contains(where: { Int($0.id) == selectedInputDeviceIDRaw })
+        if !selectedExists,
+           let defaultDeviceID = AudioInputDeviceManager.defaultInputDeviceID(),
+           inputDevices.contains(where: { $0.id == defaultDeviceID }) {
+            selectedInputDeviceIDRaw = Int(defaultDeviceID)
+        } else if !selectedExists, let first = inputDevices.first {
+            selectedInputDeviceIDRaw = Int(first.id)
+        }
+    }
+}

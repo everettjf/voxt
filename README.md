@@ -1,78 +1,101 @@
 # Voxt
 
-Hold a global hotkey, speak, and the transcribed text is automatically pasted into whatever app you're using.
-
+Voxt is a menu-bar macOS app for push-to-talk transcription.
+Hold a global shortcut, speak, and Voxt pastes the result into the currently focused app while restoring your previous clipboard content.
 
 https://github.com/user-attachments/assets/8fde004a-e07a-45fc-ae3c-8f8a216873d3
 
+## How It Works
 
-## How it works
-
-1. **Hold** `Option + Command` -- recording starts and a floating waveform overlay appears at the bottom of your screen
-2. **Speak** -- your audio is captured and transcribed
-3. **Release** -- transcribed text is pasted into the focused app (your clipboard is preserved and restored)
-
-The app lives entirely in the menu bar with no Dock icon. The only UI during use is a minimal floating pill showing audio levels and live transcription.
+1. Press your global shortcut (default: `Control + Option`, long-press mode).
+2. Speak while the floating overlay shows live audio level and partial text.
+3. Release the shortcut (or tap again in tap mode) to finish and paste.
 
 ## Features
 
-- **MLX Audio speech engine** -- on-device speech-to-text using MLX Audio models
-- **Optional Apple Dictation fallback** -- zero-setup speech recognition via `SFSpeechRecognizer`
-- **Apple Intelligence enhancement** -- optionally post-process transcriptions with on-device Foundation Models to fix grammar, punctuation, and formatting (macOS 26.0+)
-- **Global push-to-talk hotkey** -- works from any app without switching focus
-- **Animated waveform overlay** -- floating non-activating panel with real-time audio level bars and scrolling transcription text
-- **Clipboard-safe** -- saves and restores your clipboard contents around each paste
-- **Model download manager** -- one-click model download, byte/file progress, retry handling, and local cache validation
-- **China mirror support** -- optional Hugging Face mirror download (`https://hf-mirror.com`) from Settings
+- Global hotkey transcription from any app.
+- Two trigger modes: `Long Press (Release to End)` and `Tap (Press to Toggle)`.
+- Two transcription engines:
+  - `MLX Audio (On-device)` with downloadable local STT models.
+  - `Direct Dictation` via `SFSpeechRecognizer`.
+- Smart engine behavior: if MLX is selected but model is unavailable, Voxt falls back to Direct Dictation.
+- Floating non-activating overlay with:
+  - Animated waveform while recording.
+  - Live scrolling transcription text.
+  - Processing spinner during enhancement.
+- Optional Apple Intelligence enhancement (`FoundationModels`) with editable system prompt.
+- Model download manager with size prefetch, per-file progress, cancel, delete, cache validation, and optional Hugging Face China mirror (`https://hf-mirror.com`).
+- Clipboard-safe paste flow (clipboard content is restored after simulated paste).
+- Selectable microphone input device.
+- Optional interaction sounds for start/end feedback.
+- Optional local transcription history (pagination, copy, delete, clear all, and per-entry metadata).
+- Menu-bar-first app behavior with optional `Launch at Login` and `Show in Dock`.
 
-## Tech stack
+## Settings
 
-- **SwiftUI** + **AppKit** -- SwiftUI for the settings and overlay views, AppKit for the menu bar, floating panel, clipboard, and simulated key events
-- **MLX Audio Swift** -- local on-device MLX speech-to-text models with Hugging Face cache management
-- **Speech framework** -- `SFSpeechRecognizer` for real-time streaming dictation
-- **Foundation Models** -- Apple Intelligence on-device LLM for text enhancement
-- **CGEvent** -- global hotkey detection via a low-level event tap
-- **Combine** -- reactive state bridging between transcription engines and the UI
+Voxt currently provides five settings tabs:
 
-## Supported MLX STT models
+- `General`
+  - Input device selection.
+  - Interaction sounds toggle.
+  - Launch at login.
+  - Show in Dock.
+- `History`
+  - Enable/disable local transcription history.
+  - Browse, copy, delete entries.
+  - Clear all history.
+- `Model`
+  - Select transcription engine (`MLX Audio` / `Direct Dictation`).
+  - Manage MLX STT models (download/use/delete/cancel).
+  - Configure enhancement mode (`Off` / `Apple Intelligence` / `Custom LLM`).
+  - Configure enhancement prompt.
+  - Manage Custom LLM model downloads.
+  - Built-in transcription test area with sample text diffing.
+- `Hotkey`
+  - Record global shortcut.
+  - Conflict hints for common macOS shortcuts.
+  - Choose trigger mode (`Long Press` or `Tap`).
+- `About`
+  - Version, project links, license, acknowledgements.
 
-Current selectable models in Voxt:
+## Supported Models
 
-- `mlx-community/Qwen3-ASR-0.6B-4bit`
+### MLX STT models
+
+- `mlx-community/Qwen3-ASR-0.6B-4bit` (default)
 - `mlx-community/Qwen3-ASR-1.7B-bf16`
 - `mlx-community/Voxtral-Mini-4B-Realtime-2602-fp16`
 - `mlx-community/parakeet-tdt-0.6b-v3`
 - `mlx-community/GLM-ASR-Nano-2512-4bit`
 
-> Note: `Qwen3-ForcedAligner` is alignment-oriented and is not used by Voxt’s real-time transcription pipeline.
+### Custom LLM model options
 
-## Settings
+- `Qwen/Qwen2-1.5B-Instruct` (default)
+- `Qwen/Qwen2.5-3B-Instruct`
 
-Voxt provides three tabs in Settings:
+## Current Limitation
 
-- **Model**
-  - Select transcription engine (`MLX Audio` or `Direct Dictation`)
-  - Choose MLX model and view estimated download size
-  - Download / cancel / remove model with progress feedback
-  - Toggle China mirror (`hf-mirror.com`)
-  - Configure Apple Intelligence enhancement prompt
-- **Hotkey**
-  - Configure the global push-to-talk shortcut
-- **About**
-  - App metadata and version information
+- `Custom LLM` enhancement mode has model management UI, but the active enhancement pipeline currently applies only Apple Intelligence enhancement.
+
+## Data & Privacy
+
+- MLX STT transcription runs fully on-device. Direct Dictation uses Apple Speech framework behavior.
+- Optional history is stored locally at:
+  - `~/Library/Application Support/Voxt/transcription-history.json`
 
 ## Requirements
 
-- macOS 26.0+
-- Xcode 26+
-- Accessibility permission (for global hotkey)
-- Microphone permission
+- macOS `26.0+` (project deployment target).
+- Xcode `26+`.
+- Microphone permission.
+- Accessibility permission (for global hotkey monitoring and simulated paste).
+- Speech Recognition permission when using `Direct Dictation`.
 
-## Building
+## Build
 
-Open `Voxt.xcodeproj` in Xcode and build. MLX Audio Swift is resolved automatically via Swift Package Manager.
+Open `Voxt.xcodeproj` in Xcode and build.
 
-Or build from terminal:
+Or from terminal:
 
 ```bash
 xcodebuild -project Voxt.xcodeproj -scheme Voxt -destination 'platform=macOS' build

@@ -81,6 +81,7 @@ class MLXModelManager: ObservableObject {
 
     @Published private(set) var state: ModelState = .notDownloaded
     @Published private(set) var sizeState: ModelSizeState = .unknown
+    @Published private(set) var remoteSizeTextByRepo: [String: String] = [:]
 
     private var modelRepo: String
     private var hubBaseURL: URL
@@ -101,6 +102,51 @@ class MLXModelManager: ObservableObject {
 
     var currentModelRepo: String { modelRepo }
 
+    func displayTitle(for repo: String) -> String {
+        let canonicalRepo = Self.canonicalModelRepo(repo)
+        if let option = Self.availableModels.first(where: { $0.id == canonicalRepo }) {
+            return option.title
+        }
+        return canonicalRepo
+    }
+
+    func isModelDownloaded(repo: String) -> Bool {
+        let canonicalRepo = Self.canonicalModelRepo(repo)
+        guard let modelDir = Self.cacheDirectory(for: canonicalRepo) else { return false }
+        return MLXModelDownloadSupport.isModelDirectoryValid(modelDir, fileManager: .default)
+    }
+
+    func modelSizeOnDisk(repo: String) -> String {
+        let canonicalRepo = Self.canonicalModelRepo(repo)
+        guard let modelDir = Self.cacheDirectory(for: canonicalRepo),
+              let size = try? FileManager.default.allocatedSizeOfDirectory(at: modelDir),
+              size > 0
+        else {
+            return ""
+        }
+        return Self.byteFormatter.string(fromByteCount: Int64(size))
+    }
+
+    func deleteModel(repo: String) {
+        let canonicalRepo = Self.canonicalModelRepo(repo)
+        if canonicalRepo == modelRepo {
+            deleteModel()
+            return
+        }
+
+        if let repoID = Repo.ID(rawValue: canonicalRepo) {
+            clearHubCache(for: repoID)
+        }
+        if let modelDir = Self.cacheDirectory(for: canonicalRepo) {
+            try? FileManager.default.removeItem(at: modelDir)
+        }
+    }
+
+    func downloadModel(repo: String) async {
+        updateModel(repo: repo)
+        await downloadModel()
+    }
+
     func updateModel(repo: String) {
         let canonicalRepo = Self.canonicalModelRepo(repo)
         guard canonicalRepo != modelRepo else { return }
@@ -119,6 +165,7 @@ class MLXModelManager: ObservableObject {
         guard url != hubBaseURL else { return }
         hubBaseURL = url
         fetchRemoteSize()
+        prefetchAllModelSizes()
     }
 
     func checkExistingModel() {
@@ -310,10 +357,57 @@ class MLXModelManager: ObservableObject {
                 )
                 if Task.isCancelled { return }
                 sizeState = .ready(bytes: sizeInfo.bytes, text: sizeInfo.text)
+                remoteSizeTextByRepo[repo] = sizeInfo.text
             } catch is CancellationError {
                 return
             } catch {
                 sizeState = .error("Size unavailable")
+                remoteSizeTextByRepo[repo] = "Unknown"
+            }
+        }
+    }
+
+    func remoteSizeText(repo: String) -> String {
+        let canonicalRepo = Self.canonicalModelRepo(repo)
+        if let cached = remoteSizeTextByRepo[canonicalRepo] {
+            return cached
+        }
+        if canonicalRepo == modelRepo {
+            switch sizeState {
+            case .unknown:
+                return "Unknown"
+            case .loading:
+                return "Loading…"
+            case .ready(_, let text):
+                return text
+            case .error:
+                return "Unknown"
+            }
+        }
+        return "Unknown"
+    }
+
+    func prefetchAllModelSizes() {
+        for model in Self.availableModels {
+            let repo = Self.canonicalModelRepo(model.id)
+            if remoteSizeTextByRepo[repo] != nil { continue }
+            Task { [weak self] in
+                guard let self else { return }
+                do {
+                    let info = try await MLXModelDownloadSupport.fetchModelSizeInfo(
+                        repo: repo,
+                        baseURL: hubBaseURL,
+                        userAgent: Self.hubUserAgent,
+                        byteFormatter: Self.byteFormatter
+                    )
+                    await MainActor.run {
+                        self.remoteSizeTextByRepo[repo] = info.text
+                    }
+                } catch {
+                    await MainActor.run {
+                        self.remoteSizeTextByRepo[repo] = "Unknown"
+                    }
+                }
             }
         }
     }

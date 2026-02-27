@@ -1,6 +1,7 @@
 import SwiftUI
 import AppKit
 import ApplicationServices
+import CoreAudio
 
 enum TranscriptionEngine: String, CaseIterable, Identifiable {
     case dictation
@@ -28,6 +29,7 @@ enum TranscriptionEngine: String, CaseIterable, Identifiable {
 enum EnhancementMode: String, CaseIterable, Identifiable {
     case off
     case appleIntelligence
+    case customLLM
 
     var id: String { rawValue }
 
@@ -35,6 +37,7 @@ enum EnhancementMode: String, CaseIterable, Identifiable {
         switch self {
         case .off: return "Off"
         case .appleIntelligence: return "Apple Intelligence"
+        case .customLLM: return "Custom LLM"
         }
     }
 }
@@ -44,9 +47,16 @@ enum AppPreferenceKey {
     static let enhancementMode = "enhancementMode"
     static let enhancementSystemPrompt = "enhancementSystemPrompt"
     static let mlxModelRepo = "mlxModelRepo"
+    static let customLLMModelRepo = "customLLMModelRepo"
     static let useHfMirror = "useHfMirror"
     static let hotkeyKeyCode = "hotkeyKeyCode"
     static let hotkeyModifiers = "hotkeyModifiers"
+    static let hotkeyTriggerMode = "hotkeyTriggerMode"
+    static let selectedInputDeviceID = "selectedInputDeviceID"
+    static let interactionSoundsEnabled = "interactionSoundsEnabled"
+    static let launchAtLogin = "launchAtLogin"
+    static let showInDock = "showInDock"
+    static let historyEnabled = "historyEnabled"
 
     static let defaultEnhancementPrompt = """
         You are Voxt, a speech-to-text transcription assistant. Your only job is to \
@@ -63,9 +73,12 @@ struct VoxtApp: App {
 
     var body: some Scene {
         Settings {
-            SettingsView(mlxModelManager: appDelegate.mlxModelManager)
-                .frame(width: 460)
-                .padding()
+            SettingsView(
+                mlxModelManager: appDelegate.mlxModelManager,
+                customLLMManager: appDelegate.customLLMManager,
+                historyStore: appDelegate.historyStore
+            )
+                .frame(width: 760, height: 560)
         }
     }
 }
@@ -77,6 +90,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private let speechTranscriber = SpeechTranscriber()
     private var mlxTranscriber: MLXTranscriber?
     let mlxModelManager: MLXModelManager
+    let customLLMManager: CustomLLMModelManager
+    let historyStore = TranscriptionHistoryStore()
+    private let interactionSoundPlayer = InteractionSoundPlayer()
 
     private let hotkeyManager = HotkeyManager()
     private let overlayWindow = RecordingOverlayWindow()
@@ -88,7 +104,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     private var isSessionActive = false
     private var pendingSessionFinishTask: Task<Void, Never>?
-    private let sessionFinishDelay: TimeInterval = 2.0
+    private var stopRecordingFallbackTask: Task<Void, Never>?
+    private let sessionFinishDelay: TimeInterval = 1.2
+    private var recordingStartedAt: Date?
+    private var recordingStoppedAt: Date?
+    private var transcriptionProcessingStartedAt: Date?
 
     override init() {
         let repo = UserDefaults.standard.string(forKey: AppPreferenceKey.mlxModelRepo)
@@ -96,6 +116,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let useMirror = UserDefaults.standard.bool(forKey: AppPreferenceKey.useHfMirror)
         let hubURL = useMirror ? MLXModelManager.mirrorHubBaseURL : MLXModelManager.defaultHubBaseURL
         mlxModelManager = MLXModelManager(modelRepo: repo, hubBaseURL: hubURL)
+        let llmRepo = UserDefaults.standard.string(forKey: AppPreferenceKey.customLLMModelRepo)
+            ?? CustomLLMModelManager.defaultModelRepo
+        customLLMManager = CustomLLMModelManager(modelRepo: llmRepo, hubBaseURL: hubURL)
+        UserDefaults.standard.register(defaults: [
+            AppPreferenceKey.interactionSoundsEnabled: true,
+            AppPreferenceKey.launchAtLogin: false,
+            AppPreferenceKey.showInDock: false,
+            AppPreferenceKey.historyEnabled: false,
+        ])
         HotkeyPreference.registerDefaults()
         HotkeyPreference.migrateDefaultsIfNeeded()
         super.init()
@@ -122,7 +151,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        NSApp.setActivationPolicy(.accessory)
+        AppBehaviorController.applyDockVisibility(showInDock: showInDock)
         migrateLegacyPreferences()
 
         if #available(macOS 26.0, *), TextEnhancer.isAvailable {
@@ -174,34 +203,46 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func openSettings() {
         if let window = settingsWindowController?.window {
-            centerAndBringWindowToFront(window)
+            bringWindowToFront(window)
             return
         }
 
-        let contentView = SettingsView(mlxModelManager: mlxModelManager)
-            .frame(width: 460)
-            .padding()
+        let contentView = SettingsView(
+            mlxModelManager: mlxModelManager,
+            customLLMManager: customLLMManager,
+            historyStore: historyStore
+        )
+            .frame(width: 760, height: 560)
         let hostingController = NSHostingController(rootView: contentView)
 
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 500, height: 560),
+            contentRect: NSRect(x: 0, y: 0, width: 760, height: 560),
             styleMask: [.titled, .closable, .miniaturizable, .fullSizeContentView],
             backing: .buffered,
             defer: false
         )
-        window.center()
         window.title = ""
-        window.titleVisibility = .visible
+        window.titleVisibility = .hidden
         window.titlebarAppearsTransparent = true
         window.toolbar = nil
+        window.isOpaque = false
+        window.backgroundColor = .clear
+        window.isMovableByWindowBackground = true
         window.contentViewController = hostingController
         window.isReleasedWhenClosed = false
         window.level = .normal
+        positionWindowTrafficLightButtons(window)
 
         let controller = NSWindowController(window: window)
         settingsWindowController = controller
+        window.center()
         controller.showWindow(nil)
-        centerAndBringWindowToFront(window)
+        positionWindowTrafficLightButtons(window)
+        DispatchQueue.main.async { [weak self, weak window] in
+            guard let self, let window else { return }
+            self.positionWindowTrafficLightButtons(window)
+        }
+        bringWindowToFront(window)
     }
 
     private func bringWindowToFront(_ window: NSWindow) {
@@ -213,22 +254,55 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private func centerAndBringWindowToFront(_ window: NSWindow) {
         window.center()
         bringWindowToFront(window)
+        positionWindowTrafficLightButtons(window)
+    }
 
-        DispatchQueue.main.async { [weak window] in
-            guard let window else { return }
-            window.center()
-            NSApp.activate(ignoringOtherApps: true)
-            window.makeKeyAndOrderFront(nil)
-            window.orderFrontRegardless()
+    private func positionWindowTrafficLightButtons(_ window: NSWindow) {
+        guard let closeButton = window.standardWindowButton(.closeButton),
+              let miniaturizeButton = window.standardWindowButton(.miniaturizeButton),
+              let zoomButton = window.standardWindowButton(.zoomButton),
+              let container = closeButton.superview
+        else {
+            return
         }
+
+        let leftInset: CGFloat = 22
+        let topInset: CGFloat = 19
+        let spacing: CGFloat = 6
+
+        let buttonSize = closeButton.frame.size
+        let y = container.bounds.height - topInset - buttonSize.height
+        let closeX = leftInset
+        let miniaturizeX = closeX + buttonSize.width + spacing
+        let zoomX = miniaturizeX + buttonSize.width + spacing
+
+        closeButton.translatesAutoresizingMaskIntoConstraints = true
+        miniaturizeButton.translatesAutoresizingMaskIntoConstraints = true
+        zoomButton.translatesAutoresizingMaskIntoConstraints = true
+
+        closeButton.setFrameOrigin(CGPoint(x: closeX, y: y))
+        miniaturizeButton.setFrameOrigin(CGPoint(x: miniaturizeX, y: y))
+        zoomButton.setFrameOrigin(CGPoint(x: zoomX, y: y))
     }
 
     private func setupHotkey() {
         hotkeyManager.onKeyDown = { [weak self] in
-            self?.beginRecording()
+            guard let self else { return }
+            switch HotkeyPreference.loadTriggerMode() {
+            case .longPress:
+                self.beginRecording()
+            case .tap:
+                if self.isSessionActive {
+                    self.endRecording()
+                } else {
+                    self.beginRecording()
+                }
+            }
         }
         hotkeyManager.onKeyUp = { [weak self] in
-            self?.endRecording()
+            guard let self else { return }
+            guard HotkeyPreference.loadTriggerMode() == .longPress else { return }
+            self.endRecording()
         }
         hotkeyManager.start()
     }
@@ -237,6 +311,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         guard !isSessionActive else { return }
         pendingSessionFinishTask?.cancel()
         pendingSessionFinishTask = nil
+        stopRecordingFallbackTask?.cancel()
+        stopRecordingFallbackTask = nil
+        setEnhancingState(false)
+        recordingStartedAt = Date()
+        recordingStoppedAt = nil
+        transcriptionProcessingStartedAt = nil
+        applyPreferredInputDevice()
 
         if transcriptionEngine == .mlxAudio {
             switch mlxModelManager.state {
@@ -250,6 +331,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         isSessionActive = true
+        if interactionSoundsEnabled {
+            interactionSoundPlayer.playStart()
+        }
 
         if transcriptionEngine == .mlxAudio, isMLXReady {
             startMLXRecordingSession()
@@ -269,28 +353,50 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func endRecording() {
         guard isSessionActive else { return }
+        stopRecordingFallbackTask?.cancel()
+        stopRecordingFallbackTask = nil
+        recordingStoppedAt = Date()
+        if transcriptionProcessingStartedAt == nil {
+            transcriptionProcessingStartedAt = recordingStoppedAt
+        }
 
         if transcriptionEngine == .mlxAudio, isMLXReady {
             mlxTranscriber?.stopRecording()
         } else {
             speechTranscriber.stopRecording()
         }
+
+        // Safety fallback: some engine/device combinations may occasionally fail to
+        // report completion. Ensure the session/UI can always recover.
+        stopRecordingFallbackTask = Task { [weak self] in
+            guard let self else { return }
+            do {
+                try await Task.sleep(for: .seconds(8))
+            } catch {
+                return
+            }
+            guard !Task.isCancelled else { return }
+            guard self.isSessionActive else { return }
+            VoxtLog.warning("Stop recording fallback triggered; forcing session finish.")
+            self.finishSession(after: 0)
+        }
     }
 
     private func processTranscription(_ rawText: String) {
-        setEnhancingState(false)
-
         guard !rawText.isEmpty else {
+            setEnhancingState(false)
             finishSession()
             return
         }
 
         guard enhancementMode == .appleIntelligence, let enhancer else {
-            typeText(rawText)
+            setEnhancingState(false)
+            commitTranscription(rawText, llmDurationSeconds: nil)
             finishSession()
             return
         }
 
+        // Show spinner while LLM is enhancing the transcription text.
         setEnhancingState(true)
         Task {
             defer {
@@ -301,16 +407,23 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 if #available(macOS 26.0, *) {
                     let prompt = UserDefaults.standard.string(forKey: AppPreferenceKey.enhancementSystemPrompt)
                         ?? AppPreferenceKey.defaultEnhancementPrompt
+                    let llmStartedAt = Date()
                     let enhanced = try await enhancer.enhance(rawText, systemPrompt: prompt)
-                    self.typeText(enhanced)
+                    let llmDuration = Date().timeIntervalSince(llmStartedAt)
+                    self.commitTranscription(enhanced, llmDurationSeconds: llmDuration)
                 } else {
-                    self.typeText(rawText)
+                    self.commitTranscription(rawText, llmDurationSeconds: nil)
                 }
             } catch {
                 VoxtLog.error("AI enhancement failed, using raw text: \(error)")
-                self.typeText(rawText)
+                self.commitTranscription(rawText, llmDurationSeconds: nil)
             }
         }
+    }
+
+    private func commitTranscription(_ text: String, llmDurationSeconds: TimeInterval?) {
+        typeText(text)
+        appendHistoryIfNeeded(text: text, llmDurationSeconds: llmDurationSeconds)
     }
 
     private func typeText(_ text: String) {
@@ -363,6 +476,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private func startMLXRecordingSession() {
         let mlx = mlxTranscriber ?? MLXTranscriber(modelManager: mlxModelManager)
         mlxTranscriber = mlx
+        mlx.setPreferredInputDevice(selectedInputDeviceID)
         mlx.onTranscriptionFinished = { [weak self] text in
             self?.processTranscription(text)
         }
@@ -391,6 +505,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func finishSession(after delay: TimeInterval = 0) {
         pendingSessionFinishTask?.cancel()
+        stopRecordingFallbackTask?.cancel()
+        stopRecordingFallbackTask = nil
 
         let resolvedDelay = delay > 0 ? delay : sessionFinishDelay
         pendingSessionFinishTask = Task { [weak self] in
@@ -406,9 +522,82 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
             guard !Task.isCancelled else { return }
             self.overlayWindow.hide()
+            if self.interactionSoundsEnabled {
+                self.interactionSoundPlayer.playEnd()
+            }
             self.isSessionActive = false
             self.pendingSessionFinishTask = nil
         }
+    }
+
+    private var selectedInputDeviceID: AudioDeviceID? {
+        let raw = UserDefaults.standard.integer(forKey: AppPreferenceKey.selectedInputDeviceID)
+        return raw > 0 ? AudioDeviceID(raw) : nil
+    }
+
+    private var interactionSoundsEnabled: Bool {
+        UserDefaults.standard.bool(forKey: AppPreferenceKey.interactionSoundsEnabled)
+    }
+
+    private var showInDock: Bool {
+        UserDefaults.standard.bool(forKey: AppPreferenceKey.showInDock)
+    }
+
+    private var historyEnabled: Bool {
+        UserDefaults.standard.bool(forKey: AppPreferenceKey.historyEnabled)
+    }
+
+    private func appendHistoryIfNeeded(text: String, llmDurationSeconds: TimeInterval?) {
+        guard historyEnabled else { return }
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+
+        let transcriptionModel: String
+        switch transcriptionEngine {
+        case .dictation:
+            transcriptionModel = "Apple Speech Recognition"
+        case .mlxAudio:
+            let repo = mlxModelManager.currentModelRepo
+            transcriptionModel = "\(mlxModelManager.displayTitle(for: repo)) (\(repo))"
+        }
+
+        let enhancementModel: String
+        switch enhancementMode {
+        case .off:
+            enhancementModel = "None"
+        case .appleIntelligence:
+            enhancementModel = "Apple Intelligence (Foundation Models)"
+        case .customLLM:
+            let repo = customLLMManager.currentModelRepo
+            enhancementModel = "\(customLLMManager.displayTitle(for: repo)) (\(repo))"
+        }
+
+        let now = Date()
+        let audioDuration = resolvedDuration(from: recordingStartedAt, to: recordingStoppedAt ?? now)
+        let processingDuration = resolvedDuration(from: transcriptionProcessingStartedAt, to: now)
+
+        historyStore.append(
+            text: trimmed,
+            transcriptionEngine: transcriptionEngine.title,
+            transcriptionModel: transcriptionModel,
+            enhancementMode: enhancementMode.title,
+            enhancementModel: enhancementModel,
+            audioDurationSeconds: audioDuration,
+            transcriptionProcessingDurationSeconds: processingDuration,
+            llmDurationSeconds: llmDurationSeconds
+        )
+    }
+
+    private func resolvedDuration(from start: Date?, to end: Date?) -> TimeInterval? {
+        guard let start, let end else { return nil }
+        let value = end.timeIntervalSince(start)
+        guard value >= 0 else { return nil }
+        return value
+    }
+
+    private func applyPreferredInputDevice() {
+        speechTranscriber.setPreferredInputDevice(selectedInputDeviceID)
+        mlxTranscriber?.setPreferredInputDevice(selectedInputDeviceID)
     }
 
     @objc private func quit() {

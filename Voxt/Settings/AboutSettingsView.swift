@@ -35,11 +35,40 @@ struct AboutSettingsView: View {
 
             GroupBox {
                 VStack(alignment: .leading, spacing: 8) {
+                    Text("Project")
+                        .font(.headline)
+                    Link("github.com/hehehai/voxt", destination: URL(string: "https://github.com/hehehai/voxt")!)
+                        .font(.caption)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(8)
+            }
+
+            GroupBox {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Author")
+                        .font(.headline)
+                    Link("hehehai", destination: URL(string: "https://www.hehehai.cn/")!)
+                        .font(.caption)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(8)
+            }
+
+            GroupBox {
+                VStack(alignment: .leading, spacing: 8) {
                     Text("Thanks")
                         .font(.headline)
-                    Text("MLX Audio, WhisperKit, and the open-source community.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    Link(
+                        "github.com/Blaizzy/mlx-audio-swift",
+                        destination: URL(string: "https://github.com/Blaizzy/mlx-audio-swift")!
+                    )
+                    .font(.caption)
+                    Link(
+                        "github.com/fayazara/Kaze",
+                        destination: URL(string: "https://github.com/fayazara/Kaze")!
+                    )
+                    .font(.caption)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(8)

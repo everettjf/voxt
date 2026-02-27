@@ -32,9 +32,10 @@ struct WaveformView: View {
                 } else {
                     Image("voxt")
                         .resizable()
+                        .renderingMode(.template)
                         .aspectRatio(contentMode: .fit)
                         .frame(width: 16, height: 16)
-                        .colorInvert()
+                        .foregroundStyle(.white)
                         .opacity(0.9)
                         .transition(.opacity)
                 }

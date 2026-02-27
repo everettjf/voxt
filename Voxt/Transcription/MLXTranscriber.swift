@@ -4,6 +4,7 @@ import Combine
 @preconcurrency import MLX
 import MLXAudioCore
 import MLXAudioSTT
+import AudioToolbox
 
 @MainActor
 class MLXTranscriber: ObservableObject, TranscriberProtocol {
@@ -61,6 +62,7 @@ class MLXTranscriber: ObservableObject, TranscriberProtocol {
     private let sampleStore = AudioSampleStore()
     private var inputSampleRate: Double = 16000
     private let modelManager: MLXModelManager
+    private var preferredInputDeviceID: AudioDeviceID?
     private let targetSampleRate = 16000
 
     private let correctionIntervalSeconds: Double = 6.0
@@ -83,6 +85,10 @@ class MLXTranscriber: ObservableObject, TranscriberProtocol {
         self.modelManager = modelManager
     }
 
+    func setPreferredInputDevice(_ deviceID: AudioDeviceID?) {
+        preferredInputDeviceID = deviceID
+    }
+
     func requestPermissions() async -> Bool {
         let micStatus = await AVCaptureDevice.requestAccess(for: .audio)
         return micStatus
@@ -97,6 +103,7 @@ class MLXTranscriber: ObservableObject, TranscriberProtocol {
 
         do {
             let inputNode = audioEngine.inputNode
+            applyPreferredInputDeviceIfNeeded(inputNode: inputNode)
             let recordingFormat = inputNode.outputFormat(forBus: 0)
             inputSampleRate = recordingFormat.sampleRate
             let sampleStore = self.sampleStore
@@ -427,5 +434,22 @@ class MLXTranscriber: ObservableObject, TranscriberProtocol {
         }
 
         return (streamedText, finalOutput)
+    }
+
+    private func applyPreferredInputDeviceIfNeeded(inputNode: AVAudioInputNode) {
+        guard let preferredInputDeviceID else { return }
+        guard let audioUnit = inputNode.audioUnit else { return }
+        var deviceID = preferredInputDeviceID
+        let status = AudioUnitSetProperty(
+            audioUnit,
+            kAudioOutputUnitProperty_CurrentDevice,
+            kAudioUnitScope_Global,
+            0,
+            &deviceID,
+            UInt32(MemoryLayout<AudioDeviceID>.size)
+        )
+        if status != noErr {
+            VoxtLog.warning("Unable to switch input device. status=\(status)")
+        }
     }
 }

@@ -13,12 +13,18 @@ struct ModelSettingsView: View {
     @AppStorage(AppPreferenceKey.enhancementMode) private var enhancementModeRaw = EnhancementMode.off.rawValue
     @AppStorage(AppPreferenceKey.enhancementSystemPrompt) private var systemPrompt = AppPreferenceKey.defaultEnhancementPrompt
     @AppStorage(AppPreferenceKey.mlxModelRepo) private var modelRepo = MLXModelManager.defaultModelRepo
+    @AppStorage(AppPreferenceKey.customLLMModelRepo) private var customLLMRepo = CustomLLMModelManager.defaultModelRepo
     @AppStorage(AppPreferenceKey.useHfMirror) private var useHfMirror = false
 
     @ObservedObject var mlxModelManager: MLXModelManager
+    @ObservedObject var customLLMManager: CustomLLMModelManager
 
     private var selectedEngine: TranscriptionEngine {
         TranscriptionEngine(rawValue: engineRaw) ?? .mlxAudio
+    }
+
+    private var selectedEnhancementMode: EnhancementMode {
+        EnhancementMode(rawValue: enhancementModeRaw) ?? .off
     }
 
     private var appleIntelligenceAvailable: Bool {
@@ -63,57 +69,26 @@ struct ModelSettingsView: View {
 
                     Picker("Enhancement", selection: $enhancementModeRaw) {
                         Text(EnhancementMode.off.title).tag(EnhancementMode.off.rawValue)
-                        Text(EnhancementMode.appleIntelligence.title)
-                            .tag(EnhancementMode.appleIntelligence.rawValue)
+                        Text(EnhancementMode.appleIntelligence.title).tag(EnhancementMode.appleIntelligence.rawValue)
+                        Text(EnhancementMode.customLLM.title).tag(EnhancementMode.customLLM.rawValue)
                     }
                     .pickerStyle(.menu)
                     .labelsHidden()
-                    .frame(maxWidth: 240, alignment: .leading)
+                    .frame(maxWidth: 260, alignment: .leading)
 
-                    if !appleIntelligenceAvailable {
-                        Text("Apple Intelligence is not available on this Mac right now.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                    if selectedEnhancementMode == .appleIntelligence {
+                        appleIntelligenceSection
                     }
 
-                    if enhancementModeRaw == EnhancementMode.appleIntelligence.rawValue {
-                        Divider()
-
-                        Text("System Prompt")
-                            .font(.subheadline.weight(.medium))
-
-                        TextEditor(text: $systemPrompt)
-                            .font(.system(size: 11, design: .monospaced))
-                            .frame(height: 100)
-                            .scrollContentBackground(.hidden)
-                            .padding(6)
-                            .background(
-                                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                                    .fill(.quaternary.opacity(0.5))
-                            )
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                                    .strokeBorder(.quaternary, lineWidth: 1)
-                            )
-
-                        HStack {
-                            Text("Customise how Apple Intelligence enhances your transcriptions.")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-
-                            Spacer()
-
-                            Button("Reset to Default") {
-                                systemPrompt = AppPreferenceKey.defaultEnhancementPrompt
-                            }
-                            .controlSize(.small)
-                            .disabled(systemPrompt == AppPreferenceKey.defaultEnhancementPrompt)
-                        }
+                    if selectedEnhancementMode == .customLLM {
+                        customLLMSection
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(8)
             }
+
+            TranscriptionTestSectionView()
         }
         .onAppear {
             let canonicalRepo = MLXModelManager.canonicalModelRepo(modelRepo)
@@ -121,6 +96,13 @@ struct ModelSettingsView: View {
                 modelRepo = canonicalRepo
             }
             mlxModelManager.updateModel(repo: canonicalRepo)
+            mlxModelManager.prefetchAllModelSizes()
+
+            if customLLMRepo.isEmpty {
+                customLLMRepo = CustomLLMModelManager.defaultModelRepo
+            }
+            customLLMManager.updateModel(repo: customLLMRepo)
+            customLLMManager.prefetchAllModelSizes()
             updateMirrorSetting()
         }
         .onChange(of: modelRepo) { _, newValue in
@@ -130,6 +112,9 @@ struct ModelSettingsView: View {
                 return
             }
             mlxModelManager.updateModel(repo: canonicalRepo)
+        }
+        .onChange(of: customLLMRepo) { _, newValue in
+            customLLMManager.updateModel(repo: newValue)
         }
         .onChange(of: useHfMirror) { _, _ in
             updateMirrorSetting()
@@ -160,7 +145,7 @@ struct ModelSettingsView: View {
             }
 
             HStack(spacing: 6) {
-                Text("Download size:")
+                Text("Selected model size:")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 Text(sizeText)
@@ -179,105 +164,156 @@ struct ModelSettingsView: View {
             .toggleStyle(.switch)
         }
 
-        switch mlxModelManager.state {
-        case .notDownloaded:
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Model needs to be downloaded from Hugging Face.")
+        mlxModelTable
+
+        if case .downloading(let progress, let completed, let total, let currentFile, let completedFiles, let totalFiles) = mlxModelManager.state {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Downloading: \(Int(progress * 100))% • \(downloadProgressText(completed: completed, total: total))")
                     .font(.caption)
                     .foregroundStyle(.secondary)
-
-                Button("Download Model") {
-                    startModelDownload()
-                }
-                .controlSize(.small)
-            }
-
-        case .downloading(let progress, let completed, let total, let currentFile, let completedFiles, let totalFiles):
-            VStack(alignment: .leading, spacing: 8) {
-                HStack(spacing: 8) {
-                    ProgressView(value: progress)
-                        .frame(maxWidth: 160)
-                        .controlSize(.small)
-                    Text("\(Int(progress * 100))%")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .monospacedDigit()
-                    Button("Cancel") {
-                        mlxModelManager.cancelDownload()
-                    }
-                    .controlSize(.small)
-                }
-                Text(downloadProgressText(completed: completed, total: total))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
                 Text(downloadFileProgressText(currentFile: currentFile, completedFiles: completedFiles, totalFiles: totalFiles))
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+        }
+    }
 
-        case .downloaded:
-            VStack(alignment: .leading, spacing: 8) {
-                HStack(spacing: 6) {
-                    Image(systemName: "checkmark.circle.fill")
-                        .foregroundStyle(.green)
-                        .font(.caption)
-                    Text("Model downloaded")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
+    @ViewBuilder
+    private var appleIntelligenceSection: some View {
+        Divider()
 
-                if !mlxModelManager.modelSizeOnDisk.isEmpty {
-                    Text("Size: \(mlxModelManager.modelSizeOnDisk)")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
+        if appleIntelligenceAvailable {
+            Text("System Prompt")
+                .font(.subheadline.weight(.medium))
 
-                Button("Remove Model", role: .destructive) {
-                    mlxModelManager.deleteModel()
+            PromptEditorView(text: $systemPrompt)
+
+            HStack {
+                Text("Customise how Apple Intelligence enhances your transcriptions.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Button("Reset to Default") {
+                    systemPrompt = AppPreferenceKey.defaultEnhancementPrompt
                 }
                 .controlSize(.small)
+                .disabled(systemPrompt == AppPreferenceKey.defaultEnhancementPrompt)
             }
+        } else {
+            Text("Apple Intelligence is not available on this Mac, so system prompt enhancement cannot be used.")
+                .font(.caption)
+                .foregroundStyle(.orange)
+        }
+    }
 
-        case .loading:
-            HStack(spacing: 8) {
-                ProgressView()
-                    .controlSize(.small)
-                Text("Loading model...")
+    @ViewBuilder
+    private var customLLMSection: some View {
+        Divider()
+
+        Text("System Prompt")
+            .font(.subheadline.weight(.medium))
+
+        PromptEditorView(text: $systemPrompt)
+
+        customLLMModelTable
+
+        if case .downloading(let progress, let completed, let total, let currentFile, let completedFiles, let totalFiles) = customLLMManager.state {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Custom LLM downloading: \(Int(progress * 100))% • \(downloadProgressText(completed: completed, total: total))")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
+                Text(downloadFileProgressText(currentFile: currentFile, completedFiles: completedFiles, totalFiles: totalFiles))
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+        }
+    }
 
-        case .ready:
-            HStack(spacing: 6) {
-                Image(systemName: "checkmark.circle.fill")
-                    .foregroundStyle(.green)
-                    .font(.caption)
-                Text("Model ready")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                if !mlxModelManager.modelSizeOnDisk.isEmpty {
-                    Text("(\(mlxModelManager.modelSizeOnDisk))")
-                        .font(.caption)
-                        .foregroundStyle(.tertiary)
-                }
+    private var mlxModelTable: some View {
+        ModelTableView(title: "Models", rows: mlxRows)
+    }
+
+    private var customLLMModelTable: some View {
+        ModelTableView(title: "Custom LLM Models", rows: customLLMRows)
+    }
+
+    private var mlxRows: [ModelTableRow] {
+        MLXModelManager.availableModels.map { model in
+            let actions: [ModelTableAction]
+            if isDownloadingModel(model.id) {
+                actions = [
+                    ModelTableAction(title: "Cancel") {
+                        mlxModelManager.cancelDownload()
+                    }
+                ]
+            } else if mlxModelManager.isModelDownloaded(repo: model.id) {
+                actions = [
+                    ModelTableAction(
+                        title: isCurrentModel(model.id) ? "Using" : "Use",
+                        isEnabled: !isCurrentModel(model.id)
+                    ) {
+                        useModel(model.id)
+                    },
+                    ModelTableAction(title: "Delete", role: .destructive) {
+                        deleteModel(model.id)
+                    }
+                ]
+            } else {
+                actions = [
+                    ModelTableAction(title: "Download", isEnabled: !isAnotherModelDownloading(model.id)) {
+                        downloadModel(model.id)
+                    }
+                ]
             }
 
-        case .error(let message):
-            VStack(alignment: .leading, spacing: 8) {
-                HStack(spacing: 6) {
-                    Image(systemName: "exclamationmark.triangle.fill")
-                        .foregroundStyle(.red)
-                        .font(.caption)
-                    Text(message)
-                        .font(.caption)
-                        .foregroundStyle(.red)
-                }
+            return ModelTableRow(
+                id: model.id,
+                title: model.title,
+                isActive: isCurrentModel(model.id),
+                status: modelStatusText(for: model.id),
+                actions: actions
+            )
+        }
+    }
 
-                Button("Retry Download") {
-                    startModelDownload(resetExisting: true)
-                }
-                .controlSize(.small)
+    private var customLLMRows: [ModelTableRow] {
+        CustomLLMModelManager.availableModels.map { model in
+            let actions: [ModelTableAction]
+            if isDownloadingCustomLLM(model.id) {
+                actions = [
+                    ModelTableAction(title: "Cancel") {
+                        customLLMManager.cancelDownload()
+                    }
+                ]
+            } else if customLLMManager.isModelDownloaded(repo: model.id) {
+                actions = [
+                    ModelTableAction(
+                        title: isCurrentCustomLLM(model.id) ? "Using" : "Use",
+                        isEnabled: !isCurrentCustomLLM(model.id)
+                    ) {
+                        useCustomLLM(model.id)
+                    },
+                    ModelTableAction(title: "Delete", role: .destructive) {
+                        deleteCustomLLM(model.id)
+                    }
+                ]
+            } else {
+                actions = [
+                    ModelTableAction(title: "Download", isEnabled: !isAnotherCustomLLMDownloading(model.id)) {
+                        downloadCustomLLM(model.id)
+                    }
+                ]
             }
+
+            return ModelTableRow(
+                id: model.id,
+                title: model.title,
+                isActive: isCurrentCustomLLM(model.id),
+                status: customLLMStatusText(for: model.id),
+                actions: actions
+            )
         }
     }
 
@@ -312,17 +348,216 @@ struct ModelSettingsView: View {
         return "Downloading: \(fileName) (\(filesText))"
     }
 
-    private func startModelDownload(resetExisting: Bool = false) {
-        if resetExisting {
-            mlxModelManager.deleteModel()
-        }
+    private func useModel(_ repo: String) {
+        let canonicalRepo = MLXModelManager.canonicalModelRepo(repo)
+        modelRepo = canonicalRepo
+        mlxModelManager.updateModel(repo: canonicalRepo)
+    }
+
+    private func downloadModel(_ repo: String) {
         Task {
-            await mlxModelManager.downloadModel()
+            await mlxModelManager.downloadModel(repo: repo)
+            modelRepo = MLXModelManager.canonicalModelRepo(repo)
         }
+    }
+
+    private func deleteModel(_ repo: String) {
+        mlxModelManager.deleteModel(repo: repo)
+        if MLXModelManager.canonicalModelRepo(repo) == MLXModelManager.canonicalModelRepo(modelRepo) {
+            mlxModelManager.checkExistingModel()
+        }
+    }
+
+    private func isCurrentModel(_ repo: String) -> Bool {
+        MLXModelManager.canonicalModelRepo(repo) == MLXModelManager.canonicalModelRepo(modelRepo)
+    }
+
+    private func isDownloadingModel(_ repo: String) -> Bool {
+        guard isCurrentModel(repo) else { return false }
+        if case .downloading = mlxModelManager.state {
+            return true
+        }
+        return false
+    }
+
+    private func isAnotherModelDownloading(_ repo: String) -> Bool {
+        guard case .downloading = mlxModelManager.state else { return false }
+        return !isCurrentModel(repo)
+    }
+
+    private func modelStatusText(for repo: String) -> String {
+        if isDownloadingModel(repo),
+           case .downloading(_, let completed, let total, _, _, _) = mlxModelManager.state {
+            return "Downloading \(downloadProgressText(completed: completed, total: total))"
+        }
+
+        let installedSize = mlxModelManager.modelSizeOnDisk(repo: repo)
+        if mlxModelManager.isModelDownloaded(repo: repo) {
+            return installedSize.isEmpty ? "Installed" : "Installed • \(installedSize)"
+        }
+
+        let remoteSize = mlxModelManager.remoteSizeText(repo: repo)
+        return "Not installed • \(remoteSize)"
+    }
+
+    private func useCustomLLM(_ repo: String) {
+        customLLMRepo = repo
+        customLLMManager.updateModel(repo: repo)
+    }
+
+    private func downloadCustomLLM(_ repo: String) {
+        Task {
+            await customLLMManager.downloadModel(repo: repo)
+            customLLMRepo = repo
+        }
+    }
+
+    private func deleteCustomLLM(_ repo: String) {
+        customLLMManager.deleteModel(repo: repo)
+        if repo == customLLMRepo {
+            customLLMManager.checkExistingModel()
+        }
+    }
+
+    private func isCurrentCustomLLM(_ repo: String) -> Bool {
+        repo == customLLMRepo
+    }
+
+    private func isDownloadingCustomLLM(_ repo: String) -> Bool {
+        guard isCurrentCustomLLM(repo) else { return false }
+        if case .downloading = customLLMManager.state {
+            return true
+        }
+        return false
+    }
+
+    private func isAnotherCustomLLMDownloading(_ repo: String) -> Bool {
+        guard case .downloading = customLLMManager.state else { return false }
+        return !isCurrentCustomLLM(repo)
+    }
+
+    private func customLLMStatusText(for repo: String) -> String {
+        if isDownloadingCustomLLM(repo),
+           case .downloading(_, let completed, let total, _, _, _) = customLLMManager.state {
+            return "Downloading \(downloadProgressText(completed: completed, total: total))"
+        }
+
+        let installedSize = customLLMManager.modelSizeOnDisk(repo: repo)
+        if customLLMManager.isModelDownloaded(repo: repo) {
+            return installedSize.isEmpty ? "Installed" : "Installed • \(installedSize)"
+        }
+
+        let remoteSize = customLLMManager.remoteSizeText(repo: repo)
+        return "Not installed • \(remoteSize)"
     }
 
     private func updateMirrorSetting() {
         let url = useHfMirror ? MLXModelManager.mirrorHubBaseURL : MLXModelManager.defaultHubBaseURL
         mlxModelManager.updateHubBaseURL(url)
+        customLLMManager.updateHubBaseURL(url)
+    }
+}
+
+private struct PromptEditorView: View {
+    @Binding var text: String
+
+    var body: some View {
+        TextEditor(text: $text)
+            .font(.system(size: 11, design: .monospaced))
+            .frame(height: 100)
+            .scrollContentBackground(.hidden)
+            .padding(6)
+            .background(
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .fill(.quaternary.opacity(0.5))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .strokeBorder(.quaternary, lineWidth: 1)
+            )
+    }
+}
+
+private struct ModelTableAction {
+    let title: String
+    var role: ButtonRole? = nil
+    var isEnabled: Bool = true
+    let handler: () -> Void
+}
+
+private struct ModelTableRow: Identifiable {
+    let id: String
+    let title: String
+    let isActive: Bool
+    let status: String
+    let actions: [ModelTableAction]
+}
+
+private struct ModelTableView: View {
+    let title: String
+    let rows: [ModelTableRow]
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Text(title)
+                    .font(.subheadline.weight(.medium))
+                Spacer()
+                Text("Actions")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
+            .overlay(alignment: .bottom) {
+                Divider()
+            }
+
+            ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
+                VStack(spacing: 0) {
+                    HStack(alignment: .center, spacing: 10) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(row.title)
+                                .font(.subheadline.weight(row.isActive ? .semibold : .regular))
+                            Text(row.status)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+
+                        Spacer(minLength: 8)
+
+                        HStack(spacing: 6) {
+                            ForEach(Array(row.actions.enumerated()), id: \.offset) { _, action in
+                                Button(action.title, role: action.role) {
+                                    action.handler()
+                                }
+                                .controlSize(.small)
+                                .disabled(!action.isEnabled)
+                            }
+                        }
+                    }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 8)
+
+                    if index < rows.count - 1 {
+                        Divider()
+                    }
+                }
+            }
+        }
+        .tableContainerStyle
+    }
+}
+
+private extension View {
+    var tableContainerStyle: some View {
+        background(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(Color(nsColor: .windowBackgroundColor))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .strokeBorder(.quaternary, lineWidth: 1)
+        )
     }
 }

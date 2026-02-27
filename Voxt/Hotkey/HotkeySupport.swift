@@ -2,6 +2,20 @@ import AppKit
 import Carbon
 
 struct HotkeyPreference {
+    enum TriggerMode: String, CaseIterable, Identifiable {
+        case longPress
+        case tap
+
+        var id: String { rawValue }
+
+        var title: String {
+            switch self {
+            case .longPress: return "Long Press (Release to End)"
+            case .tap: return "Tap (Press to Toggle)"
+            }
+        }
+    }
+
     struct Hotkey: Equatable {
         let keyCode: UInt16
         let modifiers: NSEvent.ModifierFlags
@@ -10,11 +24,13 @@ struct HotkeyPreference {
     static let modifierOnlyKeyCode: UInt16 = 0xFFFF
     static let defaultKeyCode: UInt16 = modifierOnlyKeyCode
     static let defaultModifiers: NSEvent.ModifierFlags = [.control, .option]
+    static let defaultTriggerMode: TriggerMode = .longPress
 
     static func registerDefaults() {
         UserDefaults.standard.register(defaults: [
             AppPreferenceKey.hotkeyKeyCode: Int(defaultKeyCode),
-            AppPreferenceKey.hotkeyModifiers: Int(defaultModifiers.rawValue)
+            AppPreferenceKey.hotkeyModifiers: Int(defaultModifiers.rawValue),
+            AppPreferenceKey.hotkeyTriggerMode: defaultTriggerMode.rawValue
         ])
     }
 
@@ -49,6 +65,15 @@ struct HotkeyPreference {
     static func save(keyCode: UInt16, modifiers: NSEvent.ModifierFlags) {
         UserDefaults.standard.set(Int(keyCode), forKey: AppPreferenceKey.hotkeyKeyCode)
         UserDefaults.standard.set(Int(modifiers.rawValue), forKey: AppPreferenceKey.hotkeyModifiers)
+    }
+
+    static func loadTriggerMode() -> TriggerMode {
+        let raw = UserDefaults.standard.string(forKey: AppPreferenceKey.hotkeyTriggerMode)
+        return TriggerMode(rawValue: raw ?? "") ?? defaultTriggerMode
+    }
+
+    static func saveTriggerMode(_ mode: TriggerMode) {
+        UserDefaults.standard.set(mode.rawValue, forKey: AppPreferenceKey.hotkeyTriggerMode)
     }
 
     static func displayString(for hotkey: Hotkey) -> String {

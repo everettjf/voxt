@@ -22,6 +22,7 @@ private let hotkeyConflictRules: [HotkeyConflictRule] = [
 struct HotkeySettingsView: View {
     @AppStorage(AppPreferenceKey.hotkeyKeyCode) private var hotkeyKeyCode = Int(HotkeyPreference.defaultKeyCode)
     @AppStorage(AppPreferenceKey.hotkeyModifiers) private var hotkeyModifiers = Int(HotkeyPreference.defaultModifiers.rawValue)
+    @AppStorage(AppPreferenceKey.hotkeyTriggerMode) private var hotkeyTriggerMode = HotkeyPreference.defaultTriggerMode.rawValue
 
     @State private var isRecordingHotkey = false
 
@@ -43,6 +44,13 @@ struct HotkeySettingsView: View {
         HotkeyPreference.Hotkey(
             keyCode: hotkeyBinding.wrappedValue,
             modifiers: modifierBinding.wrappedValue
+        )
+    }
+
+    private var triggerModeBinding: Binding<HotkeyPreference.TriggerMode> {
+        Binding(
+            get: { HotkeyPreference.TriggerMode(rawValue: hotkeyTriggerMode) ?? .longPress },
+            set: { hotkeyTriggerMode = $0.rawValue }
         )
     }
 
@@ -82,6 +90,20 @@ struct HotkeySettingsView: View {
                         Text(conflict)
                             .font(.caption)
                             .foregroundStyle(.red)
+                    }
+
+                    HStack(alignment: .center, spacing: 12) {
+                        Text("Trigger")
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        Picker("Trigger", selection: triggerModeBinding) {
+                            ForEach(HotkeyPreference.TriggerMode.allCases) { mode in
+                                Text(mode.title).tag(mode)
+                            }
+                        }
+                        .labelsHidden()
+                        .pickerStyle(.menu)
+                        .frame(width: 220, alignment: .trailing)
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
