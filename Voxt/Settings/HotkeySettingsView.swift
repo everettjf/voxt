@@ -5,18 +5,18 @@ import Carbon
 private struct HotkeyConflictRule {
     let keyCode: UInt16
     let modifiers: NSEvent.ModifierFlags
-    let message: String
+    let messageKey: String
 }
 
 private let hotkeyConflictRules: [HotkeyConflictRule] = [
-    HotkeyConflictRule(keyCode: UInt16(kVK_Space), modifiers: [.command], message: "Conflicts with Spotlight (⌘Space)."),
-    HotkeyConflictRule(keyCode: UInt16(kVK_Space), modifiers: [.command, .option], message: "Conflicts with Finder search (⌥⌘Space)."),
-    HotkeyConflictRule(keyCode: UInt16(kVK_Tab), modifiers: [.command], message: "Conflicts with App Switcher (⌘Tab)."),
-    HotkeyConflictRule(keyCode: UInt16(kVK_ANSI_Grave), modifiers: [.command], message: "Conflicts with window switcher (⌘`)."),
-    HotkeyConflictRule(keyCode: UInt16(kVK_ANSI_Q), modifiers: [.command], message: "Conflicts with Quit (⌘Q)."),
-    HotkeyConflictRule(keyCode: UInt16(kVK_ANSI_H), modifiers: [.command], message: "Conflicts with Hide (⌘H)."),
-    HotkeyConflictRule(keyCode: UInt16(kVK_ANSI_M), modifiers: [.command], message: "Conflicts with Minimise (⌘M)."),
-    HotkeyConflictRule(keyCode: UInt16(kVK_ANSI_W), modifiers: [.command], message: "Conflicts with Close (⌘W).")
+    HotkeyConflictRule(keyCode: UInt16(kVK_Space), modifiers: [.command], messageKey: "Conflicts with Spotlight (⌘Space)."),
+    HotkeyConflictRule(keyCode: UInt16(kVK_Space), modifiers: [.command, .option], messageKey: "Conflicts with Finder search (⌥⌘Space)."),
+    HotkeyConflictRule(keyCode: UInt16(kVK_Tab), modifiers: [.command], messageKey: "Conflicts with App Switcher (⌘Tab)."),
+    HotkeyConflictRule(keyCode: UInt16(kVK_ANSI_Grave), modifiers: [.command], messageKey: "Conflicts with window switcher (⌘`)."),
+    HotkeyConflictRule(keyCode: UInt16(kVK_ANSI_Q), modifiers: [.command], messageKey: "Conflicts with Quit (⌘Q)."),
+    HotkeyConflictRule(keyCode: UInt16(kVK_ANSI_H), modifiers: [.command], messageKey: "Conflicts with Hide (⌘H)."),
+    HotkeyConflictRule(keyCode: UInt16(kVK_ANSI_M), modifiers: [.command], messageKey: "Conflicts with Minimise (⌘M)."),
+    HotkeyConflictRule(keyCode: UInt16(kVK_ANSI_W), modifiers: [.command], messageKey: "Conflicts with Close (⌘W).")
 ]
 
 struct HotkeySettingsView: View {
@@ -143,7 +143,7 @@ struct HotkeySettingsView: View {
                         .font(.headline)
 
                     shortcutInput(
-                        title: "Transcription",
+                        titleKey: "Transcription",
                         hotkey: currentHotkey,
                         isRecording: recordingField == .transcription,
                         onFocus: { recordingField = .transcription },
@@ -154,7 +154,7 @@ struct HotkeySettingsView: View {
                     )
 
                     shortcutInput(
-                        title: "Translation",
+                        titleKey: "Translation",
                         hotkey: currentTranslationHotkey,
                         isRecording: recordingField == .translation,
                         onFocus: { recordingField = .translation },
@@ -171,13 +171,13 @@ struct HotkeySettingsView: View {
                     }
 
                     if let conflict = hotkeyConflictMessage(for: currentHotkey) {
-                        Text("Transcription shortcut: \(conflict)")
+                        Text(localizedString("Transcription shortcut: %@", conflict))
                             .font(.caption)
                             .foregroundStyle(.red)
                     }
 
                     if let conflict = hotkeyConflictMessage(for: currentTranslationHotkey) {
-                        Text("Translation shortcut: \(conflict)")
+                        Text(localizedString("Translation shortcut: %@", conflict))
                             .font(.caption)
                             .foregroundStyle(.red)
                     }
@@ -230,25 +230,29 @@ struct HotkeySettingsView: View {
     private func hotkeyConflictMessage(for hotkey: HotkeyPreference.Hotkey) -> String? {
         return hotkeyConflictRules.first {
             hotkey.keyCode == $0.keyCode && hotkey.modifiers == $0.modifiers
-        }?.message
+        }.map { NSLocalizedString($0.messageKey, comment: "") }
+    }
+
+    private func localizedString(_ formatKey: String, _ argument: String) -> String {
+        String(format: NSLocalizedString(formatKey, comment: ""), argument)
     }
 
     @ViewBuilder
     private func shortcutInput(
-        title: String,
+        titleKey: LocalizedStringKey,
         hotkey: HotkeyPreference.Hotkey,
         isRecording: Bool,
         onFocus: @escaping () -> Void,
         onReset: @escaping () -> Void
     ) -> some View {
         HStack(alignment: .center, spacing: 12) {
-            Text(title)
+            Text(titleKey)
                 .font(.body)
                 .foregroundStyle(.secondary)
             Spacer()
 
             HStack(spacing: 8) {
-                Text(isRecording ? "Listening..." : HotkeyPreference.displayString(for: hotkey))
+                Text(isRecording ? String(localized: "Listening...") : HotkeyPreference.displayString(for: hotkey))
                     .font(.system(.body, design: .rounded))
                     .foregroundStyle(isRecording ? .primary : .primary)
                 Spacer()
@@ -257,7 +261,7 @@ struct HotkeySettingsView: View {
                         .foregroundStyle(.secondary)
                 }
                 .buttonStyle(.plain)
-                .help("Reset shortcut")
+                .help(Text("Reset shortcut"))
             }
             .padding(.horizontal, 10)
             .padding(.vertical, 8)

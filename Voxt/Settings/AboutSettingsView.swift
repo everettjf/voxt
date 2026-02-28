@@ -12,9 +12,12 @@ struct AboutSettingsView: View {
                         .foregroundStyle(.secondary)
 
                     if let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String {
-                        Text("Version \(version)")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                        HStack(spacing: 4) {
+                            Text("Version")
+                            Text(version)
+                        }
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)

@@ -218,7 +218,13 @@ struct ModelSettingsView: View {
 
         if case .downloading(let progress, let completed, let total, let currentFile, let completedFiles, let totalFiles) = mlxModelManager.state {
             VStack(alignment: .leading, spacing: 6) {
-                Text("Downloading: \(Int(progress * 100))% • \(downloadProgressText(completed: completed, total: total))")
+                Text(
+                    String(
+                        format: NSLocalizedString("Downloading: %d%% • %@", comment: ""),
+                        Int(progress * 100),
+                        downloadProgressText(completed: completed, total: total)
+                    )
+                )
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .monospacedDigit()
@@ -270,7 +276,13 @@ struct ModelSettingsView: View {
 
         if case .downloading(let progress, let completed, let total, let currentFile, let completedFiles, let totalFiles) = customLLMManager.state {
             VStack(alignment: .leading, spacing: 6) {
-                Text("Custom LLM downloading: \(Int(progress * 100))% • \(downloadProgressText(completed: completed, total: total))")
+                Text(
+                    String(
+                        format: NSLocalizedString("Custom LLM downloading: %d%% • %@", comment: ""),
+                        Int(progress * 100),
+                        downloadProgressText(completed: completed, total: total)
+                    )
+                )
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .monospacedDigit()
@@ -301,7 +313,7 @@ struct ModelSettingsView: View {
             } else if mlxModelManager.isModelDownloaded(repo: model.id) {
                 actions = [
                     ModelTableAction(
-                        title: isCurrentModel(model.id) ? "Using" : "Use",
+                        title: LocalizedStringKey(isCurrentModel(model.id) ? "Using" : "Use"),
                         isEnabled: !isCurrentModel(model.id)
                     ) {
                         useModel(model.id)
@@ -340,7 +352,7 @@ struct ModelSettingsView: View {
             } else if customLLMManager.isModelDownloaded(repo: model.id) {
                 actions = [
                     ModelTableAction(
-                        title: isCurrentCustomLLM(model.id) ? "Using" : "Use",
+                        title: LocalizedStringKey(isCurrentCustomLLM(model.id) ? "Using" : "Use"),
                         isEnabled: !isCurrentCustomLLM(model.id)
                     ) {
                         useCustomLLM(model.id)
@@ -370,13 +382,13 @@ struct ModelSettingsView: View {
     private var sizeText: String {
         switch mlxModelManager.sizeState {
         case .unknown:
-            return "Unknown"
+            return String(localized: "Unknown")
         case .loading:
-            return "Loading…"
+            return String(localized: "Loading…")
         case .ready(_, let text):
             return text
         case .error:
-            return "Unknown"
+            return String(localized: "Unknown")
         }
     }
 
@@ -384,18 +396,29 @@ struct ModelSettingsView: View {
         let completedText = Self.byteFormatter.string(fromByteCount: completed)
         if total > 0 {
             let totalText = Self.byteFormatter.string(fromByteCount: total)
-            return "Downloaded: \(completedText) / \(totalText)"
+            let format = NSLocalizedString("Downloaded: %@ / %@", comment: "")
+            return String(format: format, completedText, totalText)
         }
-        return "Downloaded: \(completedText)"
+        let format = NSLocalizedString("Downloaded: %@", comment: "")
+        return String(format: format, completedText)
     }
 
     private func downloadFileProgressText(currentFile: String?, completedFiles: Int, totalFiles: Int) -> String {
-        let filesText = totalFiles > 0 ? "\(completedFiles)/\(totalFiles) files" : "\(completedFiles) files"
+        let filesText: String
+        if totalFiles > 0 {
+            let format = NSLocalizedString("%d/%d files", comment: "")
+            filesText = String(format: format, completedFiles, totalFiles)
+        } else {
+            let format = NSLocalizedString("%d files", comment: "")
+            filesText = String(format: format, completedFiles)
+        }
         guard let currentFile, !currentFile.isEmpty else {
-            return "Preparing download... (\(filesText))"
+            let format = NSLocalizedString("Preparing download... (%@)", comment: "")
+            return String(format: format, filesText)
         }
         let fileName = (currentFile as NSString).lastPathComponent
-        return "Downloading: \(fileName) (\(filesText))"
+        let format = NSLocalizedString("Downloading: %@ (%@)", comment: "")
+        return String(format: format, fileName, filesText)
     }
 
     private func useModel(_ repo: String) {
@@ -438,16 +461,22 @@ struct ModelSettingsView: View {
     private func modelStatusText(for repo: String) -> String {
         if isDownloadingModel(repo),
            case .downloading(_, let completed, let total, _, _, _) = mlxModelManager.state {
-            return "Downloading \(downloadProgressText(completed: completed, total: total))"
+            let format = NSLocalizedString("Downloading %@", comment: "")
+            return String(format: format, downloadProgressText(completed: completed, total: total))
         }
 
         let installedSize = mlxModelManager.modelSizeOnDisk(repo: repo)
         if mlxModelManager.isModelDownloaded(repo: repo) {
-            return installedSize.isEmpty ? "Installed" : "Installed • \(installedSize)"
+            if installedSize.isEmpty {
+                return String(localized: "Installed")
+            }
+            let format = NSLocalizedString("Installed • %@", comment: "")
+            return String(format: format, installedSize)
         }
 
         let remoteSize = mlxModelManager.remoteSizeText(repo: repo)
-        return "Not installed • \(remoteSize)"
+        let format = NSLocalizedString("Not installed • %@", comment: "")
+        return String(format: format, remoteSize)
     }
 
     private func useCustomLLM(_ repo: String) {
@@ -489,16 +518,22 @@ struct ModelSettingsView: View {
     private func customLLMStatusText(for repo: String) -> String {
         if isDownloadingCustomLLM(repo),
            case .downloading(_, let completed, let total, _, _, _) = customLLMManager.state {
-            return "Downloading \(downloadProgressText(completed: completed, total: total))"
+            let format = NSLocalizedString("Downloading %@", comment: "")
+            return String(format: format, downloadProgressText(completed: completed, total: total))
         }
 
         let installedSize = customLLMManager.modelSizeOnDisk(repo: repo)
         if customLLMManager.isModelDownloaded(repo: repo) {
-            return installedSize.isEmpty ? "Installed" : "Installed • \(installedSize)"
+            if installedSize.isEmpty {
+                return String(localized: "Installed")
+            }
+            let format = NSLocalizedString("Installed • %@", comment: "")
+            return String(format: format, installedSize)
         }
 
         let remoteSize = customLLMManager.remoteSizeText(repo: repo)
-        return "Not installed • \(remoteSize)"
+        let format = NSLocalizedString("Not installed • %@", comment: "")
+        return String(format: format, remoteSize)
     }
 
     private func updateMirrorSetting() {
@@ -529,7 +564,7 @@ private struct PromptEditorView: View {
 }
 
 private struct ModelTableAction {
-    let title: String
+    let title: LocalizedStringKey
     var role: ButtonRole? = nil
     var isEnabled: Bool = true
     let handler: () -> Void
@@ -544,7 +579,7 @@ private struct ModelTableRow: Identifiable {
 }
 
 private struct ModelTableView: View {
-    let title: String
+    let title: LocalizedStringKey
     let rows: [ModelTableRow]
 
     var body: some View {

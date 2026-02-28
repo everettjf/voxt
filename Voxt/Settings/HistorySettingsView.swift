@@ -146,17 +146,17 @@ private struct HistoryRow: View {
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Transcription Details")
                         .font(.headline)
-                    detailLine(label: "Engine", value: entry.transcriptionEngine)
-                    detailLine(label: "Model", value: entry.transcriptionModel)
-                    detailLine(label: "Enhancement", value: entry.enhancementMode)
-                    detailLine(label: "Enhancer Model", value: entry.enhancementModel)
+                    detailLine(labelKey: "Engine", value: entry.transcriptionEngine)
+                    detailLine(labelKey: "Model", value: entry.transcriptionModel)
+                    detailLine(labelKey: "Enhancement", value: entry.enhancementMode)
+                    detailLine(labelKey: "Enhancer Model", value: entry.enhancementModel)
                     detailLine(
-                        label: "Transcription Processing",
-                        value: formattedDuration(entry.transcriptionProcessingDurationSeconds) ?? "N/A"
+                        labelKey: "Transcription Processing",
+                        value: formattedDuration(entry.transcriptionProcessingDurationSeconds) ?? String(localized: "N/A")
                     )
                     detailLine(
-                        label: "LLM Duration",
-                        value: formattedDuration(entry.llmDurationSeconds) ?? "N/A"
+                        labelKey: "LLM Duration",
+                        value: formattedDuration(entry.llmDurationSeconds) ?? String(localized: "N/A")
                     )
                 }
                 .padding(.vertical, 10)
@@ -180,9 +180,9 @@ private struct HistoryRow: View {
         )
     }
 
-    private func detailLine(label: String, value: String) -> some View {
+    private func detailLine(labelKey: LocalizedStringKey, value: String) -> some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text(label)
+            Text(labelKey)
                 .font(.caption)
                 .foregroundStyle(.secondary)
             Text(value)
@@ -195,19 +195,26 @@ private struct HistoryRow: View {
         guard let audioDuration = formattedDuration(entry.audioDurationSeconds) else {
             return dateText
         }
-        return "\(dateText) · Audio: \(audioDuration)"
+        let format = NSLocalizedString("%@ · Audio: %@", comment: "")
+        return String(format: format, dateText, audioDuration)
     }
 
     private var historyBadge: some View {
-        Text(entry.isTranslation ? "Translation" : "Normal")
-            .font(.system(size: 10, weight: .semibold))
-            .padding(.horizontal, 6)
-            .padding(.vertical, 2)
-            .background(
-                Capsule(style: .continuous)
-                    .fill(entry.isTranslation ? Color.blue.opacity(0.16) : Color.gray.opacity(0.16))
-            )
-            .foregroundStyle(entry.isTranslation ? Color.blue : Color.secondary)
+        Group {
+            if entry.isTranslation {
+                Text("Translation")
+            } else {
+                Text("Normal")
+            }
+        }
+        .font(.system(size: 10, weight: .semibold))
+        .padding(.horizontal, 6)
+        .padding(.vertical, 2)
+        .background(
+            Capsule(style: .continuous)
+                .fill(entry.isTranslation ? Color.blue.opacity(0.16) : Color.gray.opacity(0.16))
+        )
+        .foregroundStyle(entry.isTranslation ? Color.blue : Color.secondary)
     }
 
     private func formattedDuration(_ seconds: TimeInterval?) -> String? {

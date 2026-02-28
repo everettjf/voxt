@@ -79,15 +79,15 @@ enum AudioInputDeviceManager {
 
     private static func deviceName(deviceID: AudioDeviceID) -> String? {
         var propertyAddress = AudioObjectPropertyAddress(
-            mSelector: kAudioObjectPropertyName,
+            mSelector: kAudioDevicePropertyDeviceName,
             mScope: kAudioObjectPropertyScopeGlobal,
             mElement: kAudioObjectPropertyElementMain
         )
 
-        var cfName: CFString = "" as CFString
-        var dataSize = UInt32(MemoryLayout<CFString>.size)
-        let status = AudioObjectGetPropertyData(deviceID, &propertyAddress, 0, nil, &dataSize, &cfName)
+        var buffer = [CChar](repeating: 0, count: 256)
+        var dataSize = UInt32(buffer.count * MemoryLayout<CChar>.size)
+        let status = AudioObjectGetPropertyData(deviceID, &propertyAddress, 0, nil, &dataSize, &buffer)
         guard status == noErr else { return nil }
-        return cfName as String
+        return String(cString: buffer)
     }
 }

@@ -5,6 +5,7 @@ struct GeneralSettingsView: View {
     @AppStorage(AppPreferenceKey.selectedInputDeviceID) private var selectedInputDeviceIDRaw = 0
     @AppStorage(AppPreferenceKey.interactionSoundsEnabled) private var interactionSoundsEnabled = true
     @AppStorage(AppPreferenceKey.overlayPosition) private var overlayPositionRaw = OverlayPosition.bottom.rawValue
+    @AppStorage(AppPreferenceKey.interfaceLanguage) private var interfaceLanguageRaw = AppInterfaceLanguage.system.rawValue
     @AppStorage(AppPreferenceKey.translationTargetLanguage) private var translationTargetLanguageRaw = TranslationTargetLanguage.english.rawValue
     @AppStorage(AppPreferenceKey.autoCopyWhenNoFocusedInput) private var autoCopyWhenNoFocusedInput = false
     @AppStorage(AppPreferenceKey.launchAtLogin) private var launchAtLogin = false
@@ -75,6 +76,33 @@ struct GeneralSettingsView: View {
 
             GroupBox {
                 VStack(alignment: .leading, spacing: 12) {
+                    Text("Interface Language")
+                        .font(.headline)
+
+                    HStack(alignment: .firstTextBaseline) {
+                        Text("Language")
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        Picker("Language", selection: $interfaceLanguageRaw) {
+                            ForEach(AppInterfaceLanguage.allCases) { language in
+                                Text(language.title).tag(language.rawValue)
+                            }
+                        }
+                        .pickerStyle(.menu)
+                        .labelsHidden()
+                        .frame(width: 220, alignment: .trailing)
+                    }
+
+                    Text("Supports English, Chinese, and Japanese. Unsupported system languages default to English.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(8)
+            }
+
+            GroupBox {
+                VStack(alignment: .leading, spacing: 12) {
                     Text("Translation")
                         .font(.headline)
 
@@ -92,7 +120,7 @@ struct GeneralSettingsView: View {
                         .frame(width: 220, alignment: .trailing)
                     }
 
-                    Text("Used by the dedicated translation shortcut (fn + Space).")
+                    Text("Used by the dedicated translation shortcut (fn + Left Shift).")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -167,7 +195,8 @@ struct GeneralSettingsView: View {
                 } catch {
                     await MainActor.run {
                         launchAtLogin.toggle()
-                        launchAtLoginError = "Unable to change login item: \(error.localizedDescription)"
+                        let format = NSLocalizedString("Unable to change login item: %@", comment: "")
+                        launchAtLoginError = String(format: format, error.localizedDescription)
                     }
                 }
             }

@@ -10,8 +10,8 @@ struct HotkeyPreference {
 
         var title: String {
             switch self {
-            case .longPress: return "Long Press (Release to End)"
-            case .tap: return "Tap (Press to Toggle)"
+            case .longPress: return String(localized: "Long Press (Release to End)")
+            case .tap: return String(localized: "Tap (Press to Toggle)")
             }
         }
     }

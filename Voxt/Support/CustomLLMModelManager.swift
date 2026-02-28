@@ -105,7 +105,7 @@ class CustomLLMModelManager: ObservableObject {
             inferenceModelRepo = modelRepo
         }
 
-        var session = ChatSession(container, instructions: systemPrompt)
+        let session = ChatSession(container, instructions: systemPrompt)
         session.generateParameters = GenerateParameters(
             maxTokens: 256,
             temperature: 0.1,
@@ -154,7 +154,7 @@ class CustomLLMModelManager: ObservableObject {
         }
 
         let container = try await container(for: modelRepo)
-        var session = ChatSession(container, instructions: instructions)
+        let session = ChatSession(container, instructions: instructions)
         session.generateParameters = GenerateParameters(
             maxTokens: 256,
             temperature: 0.1,

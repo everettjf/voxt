@@ -11,17 +11,17 @@ enum TranscriptionEngine: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .dictation: return "Direct Dictation"
-        case .mlxAudio: return "MLX Audio (On-device)"
+        case .dictation: return String(localized: "Direct Dictation")
+        case .mlxAudio: return String(localized: "MLX Audio (On-device)")
         }
     }
 
     var description: String {
         switch self {
         case .dictation:
-            return "Uses Apple's built-in speech recognition. Works immediately with no setup."
+            return String(localized: "Uses Apple's built-in speech recognition. Works immediately with no setup.")
         case .mlxAudio:
-            return "Uses MLX Audio speech models running locally. Requires a one-time model download."
+            return String(localized: "Uses MLX Audio speech models running locally. Requires a one-time model download.")
         }
     }
 }
@@ -35,9 +35,9 @@ enum EnhancementMode: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .off: return "Off"
-        case .appleIntelligence: return "Apple Intelligence"
-        case .customLLM: return "Custom LLM"
+        case .off: return String(localized: "Off")
+        case .appleIntelligence: return String(localized: "Apple Intelligence")
+        case .customLLM: return String(localized: "Custom LLM")
         }
     }
 }
@@ -50,8 +50,8 @@ enum OverlayPosition: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .bottom: return "Bottom"
-        case .top: return "Top"
+        case .bottom: return String(localized: "Bottom")
+        case .top: return String(localized: "Top")
         }
     }
 }
@@ -73,6 +73,7 @@ enum AppPreferenceKey {
     static let selectedInputDeviceID = "selectedInputDeviceID"
     static let interactionSoundsEnabled = "interactionSoundsEnabled"
     static let overlayPosition = "overlayPosition"
+    static let interfaceLanguage = "interfaceLanguage"
     static let translationTargetLanguage = "translationTargetLanguage"
     static let autoCopyWhenNoFocusedInput = "autoCopyWhenNoFocusedInput"
     static let launchAtLogin = "launchAtLogin"
@@ -97,6 +98,7 @@ enum AppPreferenceKey {
 @main
 struct VoxtApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
+    @AppStorage(AppPreferenceKey.interfaceLanguage) private var interfaceLanguageRaw = AppInterfaceLanguage.system.rawValue
 
     var body: some Scene {
         Settings {
@@ -106,7 +108,12 @@ struct VoxtApp: App {
                 historyStore: appDelegate.historyStore
             )
                 .frame(width: 760, height: 560)
+                .environment(\.locale, interfaceLanguage.locale)
         }
+    }
+
+    private var interfaceLanguage: AppInterfaceLanguage {
+        AppInterfaceLanguage(rawValue: interfaceLanguageRaw) ?? .system
     }
 }
 
@@ -161,6 +168,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         UserDefaults.standard.register(defaults: [
             AppPreferenceKey.interactionSoundsEnabled: true,
             AppPreferenceKey.overlayPosition: OverlayPosition.bottom.rawValue,
+            AppPreferenceKey.interfaceLanguage: AppInterfaceLanguage.system.rawValue,
             AppPreferenceKey.translationTargetLanguage: TranslationTargetLanguage.english.rawValue,
             AppPreferenceKey.autoCopyWhenNoFocusedInput: false,
             AppPreferenceKey.translationSystemPrompt: AppPreferenceKey.defaultTranslationPrompt,
@@ -236,11 +244,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private func buildMenu() {
         let menu = NSMenu()
 
-        let settingsItem = NSMenuItem(title: "Settings…", action: #selector(openSettings), keyEquivalent: ",")
+        let settingsItem = NSMenuItem(title: String(localized: "Settings…"), action: #selector(openSettings), keyEquivalent: ",")
         settingsItem.target = self
         menu.addItem(settingsItem)
         menu.addItem(NSMenuItem.separator())
-        menu.addItem(NSMenuItem(title: "Quit Voxt", action: #selector(quit), keyEquivalent: "q"))
+        menu.addItem(NSMenuItem(title: String(localized: "Quit Voxt"), action: #selector(quit), keyEquivalent: "q"))
         statusItem?.menu = menu
     }
 
@@ -1015,10 +1023,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func showPermissionAlert() {
         let alert = NSAlert()
-        alert.messageText = "Permissions Required"
-        alert.informativeText = "Voxt needs Microphone access. If you use Direct Dictation, enable Speech Recognition in System Settings → Privacy & Security."
-        alert.addButton(withTitle: "Open System Settings")
-        alert.addButton(withTitle: "Quit")
+        alert.messageText = String(localized: "Permissions Required")
+        alert.informativeText = String(localized: "Voxt needs Microphone access. If you use Direct Dictation, enable Speech Recognition in System Settings → Privacy & Security.")
+        alert.addButton(withTitle: String(localized: "Open System Settings"))
+        alert.addButton(withTitle: String(localized: "Quit"))
         if alert.runModal() == .alertFirstButtonReturn {
             NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_SpeechRecognition")!)
         }

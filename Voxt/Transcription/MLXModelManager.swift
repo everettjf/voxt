@@ -93,7 +93,7 @@ class MLXModelManager: ObservableObject {
     private let downloadSizeTolerance: Double = 0.9
     private let downloadRetryLimit = 3
 
-    init(modelRepo: String, hubBaseURL: URL = MLXModelManager.defaultHubBaseURL) {
+    init(modelRepo: String, hubBaseURL: URL = URL(string: "https://huggingface.co")!) {
         self.modelRepo = Self.canonicalModelRepo(modelRepo)
         self.hubBaseURL = hubBaseURL
         checkExistingModel()
