@@ -6,6 +6,18 @@ The format is based on Keep a Changelog.
 
 ## [Unreleased]
 
+## [1.1.4] - 2026-03-01
+
+### Added
+- Persistent application logs with local file storage.
+- About page Logs section with last update time and export of latest 2000 entries.
+
+### Changed
+- Localized the new Logs export/status copy in English, Japanese, and Simplified Chinese.
+
+### Fixed
+- Updated app sandbox user-selected file access to read/write so save panel can be shown.
+
 ## [1.1.3] - 2026-03-01
 
 ### Added
