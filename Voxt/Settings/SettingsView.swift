@@ -250,6 +250,7 @@ private struct SettingsSidebar: View {
 
 private struct UpdateSheetView: View {
     @ObservedObject var appUpdateManager: AppUpdateManager
+    @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -307,6 +308,11 @@ private struct UpdateSheetView: View {
                 }
 
                 Spacer()
+
+                Button("Close") {
+                    dismiss()
+                }
+                .keyboardShortcut(.cancelAction)
 
                 if appUpdateManager.isDownloading {
                     Button("Cancel Download", role: .destructive) {

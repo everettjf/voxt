@@ -196,6 +196,7 @@
 "No update information yet." = "更新情報はまだありません。";
 "Check Now" = "今すぐ確認";
 "Skip This Version" = "このバージョンをスキップ";
+"Close" = "閉じる";
 "Cancel Download" = "ダウンロードをキャンセル";
 "Install and Restart" = "インストールして再起動";
 "Download Update" = "更新をダウンロード";

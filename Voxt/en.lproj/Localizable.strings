@@ -196,6 +196,7 @@
 "No update information yet." = "No update information yet.";
 "Check Now" = "Check Now";
 "Skip This Version" = "Skip This Version";
+"Close" = "Close";
 "Cancel Download" = "Cancel Download";
 "Install and Restart" = "Install and Restart";
 "Download Update" = "Download Update";

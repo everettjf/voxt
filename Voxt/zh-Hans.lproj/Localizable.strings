@@ -196,6 +196,7 @@
 "No update information yet." = "暂无更新信息。";
 "Check Now" = "立即检查";
 "Skip This Version" = "跳过此版本";
+"Close" = "关闭";
 "Cancel Download" = "取消下载";
 "Install and Restart" = "安装并重启";
 "Download Update" = "下载更新";
