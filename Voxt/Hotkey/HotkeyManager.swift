@@ -1,6 +1,7 @@
 import Foundation
 import Carbon
 import AppKit
+import ApplicationServices
 
 /// Monitors a global hotkey via a CGEvent tap.
 /// - Press and hold hotkey key  → calls `onKeyDown`
@@ -19,9 +20,19 @@ class HotkeyManager {
     private var isTranslationKeyDown = false
     private var activeTranslationKeyCode: UInt16?
     private var suppressTranscriptionTapUntil = Date.distantPast
+    private var retryTask: Task<Void, Never>?
+    private var didPromptAccessibility = false
+    private var didPromptInputMonitoring = false
 
     func start() {
+        if eventTap != nil {
+            return
+        }
         VoxtLog.info("Starting hotkey manager.")
+        guard preflightAndPromptPermissionsIfNeeded() else {
+            scheduleRetry()
+            return
+        }
         let eventMask: CGEventMask =
             (1 << CGEventType.keyDown.rawValue) |
             (1 << CGEventType.keyUp.rawValue) |
@@ -29,8 +40,8 @@ class HotkeyManager {
 
         guard let tap = CGEvent.tapCreate(
             tap: .cgSessionEventTap,
-            place: .headInsertEventTap,
-            options: .defaultTap,
+            place: .tailAppendEventTap,
+            options: .listenOnly,
             eventsOfInterest: eventMask,
             callback: { _, type, event, refcon -> Unmanaged<CGEvent>? in
                 guard let refcon else { return Unmanaged.passUnretained(event) }
@@ -40,7 +51,8 @@ class HotkeyManager {
             },
             userInfo: Unmanaged.passUnretained(self).toOpaque()
         ) else {
-            VoxtLog.error("Failed to create event tap. Grant Accessibility permission.")
+            VoxtLog.error("Failed to create event tap. \(permissionStatusText())")
+            scheduleRetry()
             return
         }
 
@@ -48,11 +60,15 @@ class HotkeyManager {
         runLoopSource = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0)
         CFRunLoopAddSource(CFRunLoopGetMain(), runLoopSource, .commonModes)
         CGEvent.tapEnable(tap: tap, enable: true)
+        retryTask?.cancel()
+        retryTask = nil
         VoxtLog.info("Hotkey event tap started successfully.")
     }
 
     func stop() {
         VoxtLog.info("Stopping hotkey manager.")
+        retryTask?.cancel()
+        retryTask = nil
         if let tap = eventTap {
             CGEvent.tapEnable(tap: tap, enable: false)
         }
@@ -66,6 +82,57 @@ class HotkeyManager {
         isTranslationKeyDown = false
         activeTranslationKeyCode = nil
         VoxtLog.info("Hotkey manager stopped.")
+    }
+
+    private func preflightAndPromptPermissionsIfNeeded() -> Bool {
+        let accessibilityGranted = AXIsProcessTrusted()
+        let inputMonitoringGranted: Bool
+        if #available(macOS 10.15, *) {
+            inputMonitoringGranted = CGPreflightListenEventAccess()
+        } else {
+            inputMonitoringGranted = true
+        }
+
+        guard accessibilityGranted, inputMonitoringGranted else {
+            if !accessibilityGranted, !didPromptAccessibility {
+                didPromptAccessibility = true
+                let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
+                _ = AXIsProcessTrustedWithOptions(options)
+            }
+            if !inputMonitoringGranted, !didPromptInputMonitoring {
+                didPromptInputMonitoring = true
+                if #available(macOS 10.15, *) {
+                    _ = CGRequestListenEventAccess()
+                }
+            }
+            VoxtLog.warning("Hotkey preflight blocked. \(permissionStatusText())")
+            return false
+        }
+
+        return true
+    }
+
+    private func permissionStatusText() -> String {
+        let accessibility = AXIsProcessTrusted() ? "on" : "off"
+        let inputMonitoring: String
+        if #available(macOS 10.15, *) {
+            inputMonitoring = CGPreflightListenEventAccess() ? "on" : "off"
+        } else {
+            inputMonitoring = "on"
+        }
+        return "permissions: accessibility=\(accessibility), inputMonitoring=\(inputMonitoring)"
+    }
+
+    private func scheduleRetry() {
+        guard retryTask == nil else { return }
+        retryTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            while !Task.isCancelled, self.eventTap == nil {
+                try? await Task.sleep(for: .seconds(2))
+                guard !Task.isCancelled else { return }
+                self.start()
+            }
+        }
     }
 
     private func handleEvent(type: CGEventType, event: CGEvent) {

@@ -23,7 +23,7 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
-		31F19CCD2F4D76D200E96913 /* Voxt.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Voxt.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		31F19CCD2F4D76D200E96913 /* Voxt Dev.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Voxt Dev.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		3A1A2B3C4D5E6F708090A0B0A /* XCTest.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = XCTest.framework; path = System/Library/Frameworks/XCTest.framework; sourceTree = SDKROOT; };
 		3A1A2B3C4D5E6F708090A0B0B /* VoxtTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = VoxtTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		694309B92F5280180056FECC /* en */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = en; path = Localizable.strings; sourceTree = "<group>"; };
@@ -82,7 +82,7 @@
 			isa = PBXGroup;
 			children = (
 				3A1A2B3C4D5E6F708090A0B0B /* VoxtTests.xctest */,
-				31F19CCD2F4D76D200E96913 /* Voxt.app */,
+				31F19CCD2F4D76D200E96913 /* Voxt Dev.app */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -143,7 +143,7 @@
 				A1B2C3D4E5F607890123456A /* MLXAudioSTT */,
 			);
 			productName = Voxt;
-			productReference = 31F19CCD2F4D76D200E96913 /* Voxt.app */;
+			productReference = 31F19CCD2F4D76D200E96913 /* Voxt Dev.app */;
 			productType = "com.apple.product-type.application";
 		};
 		3A1A2B3C4D5E6F708090A0B0E /* VoxtTests */ = {
@@ -427,8 +427,8 @@
 				);
 				MACOSX_DEPLOYMENT_TARGET = 26.0;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.voxt.Voxt;
-				PRODUCT_NAME = "$(TARGET_NAME)";
+				PRODUCT_BUNDLE_IDENTIFIER = com.voxt.Voxt.dev;
+				PRODUCT_NAME = "$(TARGET_NAME) Dev";
 				REGISTER_APP_GROUPS = YES;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
@@ -466,7 +466,7 @@
 				);
 				MACOSX_DEPLOYMENT_TARGET = 26.0;
 				MARKETING_VERSION = 1.0;
-				"MARKETING_VERSION[sdk=macosx*]" = 1.1.7;
+				"MARKETING_VERSION[sdk=macosx*]" = 1.1.8;
 				PRODUCT_BUNDLE_IDENTIFIER = com.voxt.Voxt;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
