@@ -79,6 +79,7 @@
 "Last updated: %@" = "最終更新: %@";
 "Exported to %@" = "%@ にエクスポートしました";
 "Export failed: %@" = "エクスポートに失敗しました: %@";
+"Exports the most recent 2000 log entries as a .log file." = "最新 2000 件のログを .log ファイルとして書き出します。";
 "Play a short start chime when recording begins and an end chime when transcription completes." = "録音開始時に短い開始音、文字起こし完了時に終了音を再生します。";
 "Controls where the floating transcription overlay appears on screen." = "フローティング文字起こしオーバーレイの表示位置を設定します。";
 "Used by the dedicated translation shortcut (fn + Left Shift)." = "専用翻訳ショートカット（fn + 左 Shift）で使用されます。";
@@ -116,6 +117,8 @@
 "Translation shortcut: %@" = "翻訳ショートカット: %@";
 "Transcription and translation shortcuts should be different." = "文字起こしと翻訳のショートカットは別にしてください。";
 "Both actions support custom shortcuts. You can use a single key (such as fn) or a key combination." = "両方の操作でカスタムショートカットが使えます。単一キー（fn など）またはキー組み合わせを設定できます。";
+"Long Press: Hold transcription hotkey to start transcription and release it to stop; hold translation hotkey to start translation and release it to stop." = "長押し: 文字起こしショートカットを押し続けると開始し、離すと終了します。翻訳ショートカットも同様です。";
+"Tap: Tap transcription hotkey to start and tap transcription hotkey again to stop. Translation hotkey starts translation sessions." = "タップ: 文字起こしショートカットを 1 回押すと開始、もう 1 回押すと終了します。翻訳ショートカットは翻訳セッションを開始します。";
 "Listening..." = "入力待機中...";
 "Reset shortcut" = "ショートカットをリセット";
 "Text Enhancement" = "テキスト強化";

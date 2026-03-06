@@ -79,6 +79,7 @@
 "Last updated: %@" = "Last updated: %@";
 "Exported to %@" = "Exported to %@";
 "Export failed: %@" = "Export failed: %@";
+"Exports the most recent 2000 log entries as a .log file." = "Exports the most recent 2000 log entries as a .log file.";
 "Play a short start chime when recording begins and an end chime when transcription completes." = "Play a short start chime when recording begins and an end chime when transcription completes.";
 "Controls where the floating transcription overlay appears on screen." = "Controls where the floating transcription overlay appears on screen.";
 "Used by the dedicated translation shortcut (fn + Left Shift)." = "Used by the dedicated translation shortcut (fn + Left Shift).";
@@ -116,6 +117,8 @@
 "Translation shortcut: %@" = "Translation shortcut: %@";
 "Transcription and translation shortcuts should be different." = "Transcription and translation shortcuts should be different.";
 "Both actions support custom shortcuts. You can use a single key (such as fn) or a key combination." = "Both actions support custom shortcuts. You can use a single key (such as fn) or a key combination.";
+"Long Press: Hold transcription hotkey to start transcription and release it to stop; hold translation hotkey to start translation and release it to stop." = "Long Press: Hold transcription hotkey to start transcription and release it to stop; hold translation hotkey to start translation and release it to stop.";
+"Tap: Tap transcription hotkey to start and tap transcription hotkey again to stop. Translation hotkey starts translation sessions." = "Tap: Tap transcription hotkey to start and tap transcription hotkey again to stop. Translation hotkey starts translation sessions.";
 "Listening..." = "Listening...";
 "Reset shortcut" = "Reset shortcut";
 "Text Enhancement" = "Text Enhancement";
