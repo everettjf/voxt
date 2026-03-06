@@ -157,9 +157,26 @@ struct AboutSettingsView: View {
     private func exportLatestLogs() {
         do {
             let generatedURL = try VoxtLog.exportLatestLogs(limit: 2000)
-            let downloadsURL = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
-                ?? FileManager.default.homeDirectoryForCurrentUser
-            let destinationURL = downloadsURL.appendingPathComponent(generatedURL.lastPathComponent)
+            let panel = NSSavePanel()
+            panel.canCreateDirectories = true
+            panel.allowedContentTypes = [.plainText]
+            panel.nameFieldStringValue = generatedURL.lastPathComponent
+            panel.directoryURL = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
+
+            let response = panel.runModal()
+            guard response == .OK, let destinationURL = panel.url else {
+                logExportStatus = String(localized: "Export cancelled")
+                refreshLogUpdateDate()
+                return
+            }
+
+            let scopedDirectoryURL = destinationURL.deletingLastPathComponent()
+            let accessStarted = scopedDirectoryURL.startAccessingSecurityScopedResource()
+            defer {
+                if accessStarted {
+                    scopedDirectoryURL.stopAccessingSecurityScopedResource()
+                }
+            }
 
             if FileManager.default.fileExists(atPath: destinationURL.path) {
                 try FileManager.default.removeItem(at: destinationURL)
