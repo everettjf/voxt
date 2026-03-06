@@ -20,6 +20,9 @@ class HotkeyManager {
     private var isTranslationKeyDown = false
     private var activeTranslationKeyCode: UInt16?
     private var suppressTranscriptionTapUntil = Date.distantPast
+    private var pendingTranscriptionTapTask: Task<Void, Never>?
+    private var pendingTranscriptionLongPressReleaseTask: Task<Void, Never>?
+    private var pendingTranslationLongPressReleaseTask: Task<Void, Never>?
     private var retryTask: Task<Void, Never>?
     private var didPromptAccessibility = false
     private var didPromptInputMonitoring = false
@@ -81,6 +84,12 @@ class HotkeyManager {
         activeKeyCode = nil
         isTranslationKeyDown = false
         activeTranslationKeyCode = nil
+        pendingTranscriptionTapTask?.cancel()
+        pendingTranscriptionTapTask = nil
+        pendingTranscriptionLongPressReleaseTask?.cancel()
+        pendingTranscriptionLongPressReleaseTask = nil
+        pendingTranslationLongPressReleaseTask?.cancel()
+        pendingTranslationLongPressReleaseTask = nil
         VoxtLog.info("Hotkey manager stopped.")
     }
 
@@ -154,7 +163,11 @@ class HotkeyManager {
                 let isFunctionKeyEvent = keyCode == UInt16(kVK_Function)
 
                 if triggerMode == .tap {
+                    // Tap semantics:
+                    // - Translation combo emits only "down" and acts as a start trigger.
+                    // - Stop action is centralized to transcription hotkey tap (fn) in AppDelegate.
                     if (comboIsDown || (isFnOnlyHotkey && isFunctionKeyEvent)) && !isTranslationKeyDown {
+                        cancelPendingTranscriptionTap(resetKeyState: true)
                         isTranslationKeyDown = true
                         suppressTranscriptionTapUntil = Date().addingTimeInterval(0.35)
                         emitTranslationKeyDown()
@@ -169,12 +182,14 @@ class HotkeyManager {
                         return
                     }
                 } else {
+                    if comboIsDown {
+                        cancelPendingTranslationLongPressRelease()
+                    }
                     if comboIsDown && !isTranslationKeyDown {
                         isTranslationKeyDown = true
                         emitTranslationKeyDown()
                     } else if !comboIsDown && isTranslationKeyDown {
-                        isTranslationKeyDown = false
-                        emitTranslationKeyUp()
+                        scheduleTranslationLongPressRelease()
                     } else if isFnOnlyHotkey && isFunctionKeyEvent {
                         if isTranslationKeyDown {
                             isTranslationKeyDown = false
@@ -226,6 +241,7 @@ class HotkeyManager {
             // If translation modifier combo is active, suppress transcription trigger.
             if translationHotkey.keyCode == HotkeyPreference.modifierOnlyKeyCode,
                flags.contains(translationFlags) || isTranslationKeyDown {
+                cancelPendingTranscriptionTap(resetKeyState: true)
                 return
             }
             let comboIsDown = flags.contains(transcriptionFlags)
@@ -233,28 +249,57 @@ class HotkeyManager {
             let isFunctionKeyEvent = keyCode == UInt16(kVK_Function)
 
             if triggerMode == .tap {
+                // Tap semantics for modifier-only transcription hotkey:
+                // emit only "down" as a toggle signal; release transitions are ignored.
                 if Date() < suppressTranscriptionTapUntil {
+                    cancelPendingTranscriptionTap(resetKeyState: true)
                     if !comboIsDown && isKeyDown {
                         isKeyDown = false
                     }
                     return
                 }
+                let shouldDelayTap = shouldDelayTranscriptionTap(
+                    transcriptionHotkey: transcriptionHotkey,
+                    translationHotkey: translationHotkey,
+                    transcriptionFlags: transcriptionFlags,
+                    translationFlags: translationFlags
+                )
+                if shouldDelayTap {
+                    if (comboIsDown || (isFnOnlyHotkey && isFunctionKeyEvent)) && !isKeyDown {
+                        if flags.contains(translationFlags) {
+                            return
+                        }
+                        isKeyDown = true
+                        schedulePendingTranscriptionTap()
+                    }
+                    if !comboIsDown && isKeyDown {
+                        flushPendingTranscriptionTapIfNeeded()
+                        isKeyDown = false
+                    }
+                    return
+                }
                 if (comboIsDown || (isFnOnlyHotkey && isFunctionKeyEvent)) && !isKeyDown {
+                    if flags.contains(translationFlags) {
+                        return
+                    }
                     isKeyDown = true
                     emitKeyDown()
                 }
                 if !comboIsDown && isKeyDown {
                     isKeyDown = false
                 }
+                cancelPendingTranscriptionTap(resetKeyState: false)
                 return
             }
 
             if comboIsDown && !isKeyDown {
+                cancelPendingTranscriptionLongPressRelease()
                 isKeyDown = true
                 emitKeyDown()
             } else if !comboIsDown && isKeyDown {
-                isKeyDown = false
-                emitKeyUp()
+                // Long-press release is confirmed with a short delay to tolerate
+                // transient flags jitter on fn/shift combinations.
+                scheduleTranscriptionLongPressRelease()
             } else if isFnOnlyHotkey && isFunctionKeyEvent {
                 if isKeyDown {
                     isKeyDown = false
@@ -306,6 +351,95 @@ class HotkeyManager {
         if modifiers.contains(.shift) { flags.insert(.maskShift) }
         if modifiers.contains(.function) { flags.insert(.maskSecondaryFn) }
         return flags
+    }
+
+    private func shouldDelayTranscriptionTap(
+        transcriptionHotkey: HotkeyPreference.Hotkey,
+        translationHotkey: HotkeyPreference.Hotkey,
+        transcriptionFlags: CGEventFlags,
+        translationFlags: CGEventFlags
+    ) -> Bool {
+        guard transcriptionHotkey.keyCode == HotkeyPreference.modifierOnlyKeyCode else { return false }
+        guard translationHotkey.keyCode == HotkeyPreference.modifierOnlyKeyCode else { return false }
+        guard transcriptionFlags != translationFlags else { return false }
+        return translationFlags.contains(transcriptionFlags)
+    }
+
+    private func schedulePendingTranscriptionTap() {
+        pendingTranscriptionTapTask?.cancel()
+        pendingTranscriptionTapTask = Task { [weak self] in
+            do {
+                try await Task.sleep(for: .milliseconds(80))
+            } catch {
+                return
+            }
+            guard let self else { return }
+            guard !Task.isCancelled else { return }
+            guard self.isKeyDown, !self.isTranslationKeyDown else { return }
+            self.pendingTranscriptionTapTask = nil
+            self.emitKeyDown()
+        }
+    }
+
+    private func flushPendingTranscriptionTapIfNeeded() {
+        guard pendingTranscriptionTapTask != nil else { return }
+        pendingTranscriptionTapTask?.cancel()
+        pendingTranscriptionTapTask = nil
+        if isKeyDown, !isTranslationKeyDown {
+            emitKeyDown()
+        }
+    }
+
+    private func cancelPendingTranscriptionTap(resetKeyState: Bool) {
+        pendingTranscriptionTapTask?.cancel()
+        pendingTranscriptionTapTask = nil
+        if resetKeyState {
+            isKeyDown = false
+        }
+    }
+
+    private func scheduleTranslationLongPressRelease() {
+        pendingTranslationLongPressReleaseTask?.cancel()
+        pendingTranslationLongPressReleaseTask = Task { [weak self] in
+            do {
+                try await Task.sleep(for: .milliseconds(80))
+            } catch {
+                return
+            }
+            guard let self else { return }
+            guard !Task.isCancelled else { return }
+            guard self.isTranslationKeyDown else { return }
+            self.pendingTranslationLongPressReleaseTask = nil
+            self.isTranslationKeyDown = false
+            self.emitTranslationKeyUp()
+        }
+    }
+
+    private func cancelPendingTranslationLongPressRelease() {
+        pendingTranslationLongPressReleaseTask?.cancel()
+        pendingTranslationLongPressReleaseTask = nil
+    }
+
+    private func scheduleTranscriptionLongPressRelease() {
+        pendingTranscriptionLongPressReleaseTask?.cancel()
+        pendingTranscriptionLongPressReleaseTask = Task { [weak self] in
+            do {
+                try await Task.sleep(for: .milliseconds(80))
+            } catch {
+                return
+            }
+            guard let self else { return }
+            guard !Task.isCancelled else { return }
+            guard self.isKeyDown else { return }
+            self.pendingTranscriptionLongPressReleaseTask = nil
+            self.isKeyDown = false
+            self.emitKeyUp()
+        }
+    }
+
+    private func cancelPendingTranscriptionLongPressRelease() {
+        pendingTranscriptionLongPressReleaseTask?.cancel()
+        pendingTranscriptionLongPressReleaseTask = nil
     }
 
     private func emitKeyDown() {

@@ -6,6 +6,10 @@ import FoundationModels
 @available(macOS 26.0, *)
 @MainActor
 class TextEnhancer {
+    @Generable
+    struct EnhancementOutput {
+        var resultText: String
+    }
 
     /// Whether Apple Intelligence is available on this device.
     static var isAvailable: Bool {
@@ -27,10 +31,15 @@ class TextEnhancer {
         )
 
         let response = try await session.respond(
-            to: "Clean up this transcription:\n\n\(rawText)"
+            to: """
+            Clean up this transcription while preserving meaning and style.
+            Input:
+            \(rawText)
+            """,
+            generating: EnhancementOutput.self
         )
 
-        let enhanced = response.content.trimmingCharacters(in: .whitespacesAndNewlines)
+        let enhanced = Self.normalizeResultText(response.content.resultText)
         return enhanced.isEmpty ? rawText : enhanced
     }
 
@@ -49,10 +58,39 @@ class TextEnhancer {
         )
 
         let response = try await session.respond(
-            to: text
+            to: """
+            Translate the following text according to the instructions.
+            Input:
+            \(text)
+            """,
+            generating: EnhancementOutput.self
         )
 
-        let translated = response.content.trimmingCharacters(in: .whitespacesAndNewlines)
+        let translated = Self.normalizeResultText(response.content.resultText)
         return translated.isEmpty ? text : translated
+    }
+
+    private static func normalizeResultText(_ output: String) -> String {
+        var cleaned = output
+        if let regex = try? NSRegularExpression(pattern: "<think>[\\s\\S]*?</think>", options: [.caseInsensitive]) {
+            let range = NSRange(location: 0, length: (cleaned as NSString).length)
+            cleaned = regex.stringByReplacingMatches(in: cleaned, options: [], range: range, withTemplate: "")
+        }
+        cleaned = unwrapCodeFenceIfNeeded(cleaned)
+        return cleaned.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private static func unwrapCodeFenceIfNeeded(_ text: String) -> String {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.hasPrefix("```"), trimmed.hasSuffix("```") else {
+            return trimmed
+        }
+        var lines = trimmed.components(separatedBy: .newlines)
+        guard lines.count >= 2 else { return trimmed }
+        lines.removeFirst()
+        if let last = lines.last, last.trimmingCharacters(in: .whitespacesAndNewlines) == "```" {
+            lines.removeLast()
+        }
+        return lines.joined(separator: "\n")
     }
 }

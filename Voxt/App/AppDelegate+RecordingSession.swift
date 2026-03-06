@@ -328,6 +328,9 @@ extension AppDelegate {
     }
 
     private func processTranslatedTranscription(_ text: String) {
+        VoxtLog.info(
+            "Translation flow started. inputChars=\(text.count), targetLanguage=\(translationTargetLanguage.instructionName), enhancementMode=\(enhancementMode.rawValue)"
+        )
         setEnhancingState(true)
         Task {
             defer {
@@ -337,9 +340,15 @@ extension AppDelegate {
 
             let llmStartedAt = Date()
             do {
-                let enhanced = try await self.enhanceTextIfNeeded(text)
+                // Translation mode uses a two-stage LLM pipeline for better quality:
+                // 1) enhancement with app-branch prompt, 2) translation with translation prompt.
+                let enhanced = try await self.enhanceTextIfNeeded(text, useAppBranchPrompt: true)
                 let translated = try await self.translateText(enhanced, targetLanguage: self.translationTargetLanguage)
                 let llmDuration = Date().timeIntervalSince(llmStartedAt)
+                if self.looksUntranslated(source: text, result: translated) {
+                    VoxtLog.warning("Translation output may be untranslated. sourceChars=\(text.count), outputChars=\(translated.count)")
+                }
+                VoxtLog.info("Translation flow succeeded. outputChars=\(translated.count), llmDurationSec=\(String(format: "%.3f", llmDuration))")
                 self.commitTranscription(translated, llmDurationSeconds: llmDuration)
             } catch {
                 VoxtLog.warning("Translation flow failed, using raw text: \(error)")
@@ -348,33 +357,40 @@ extension AppDelegate {
         }
     }
 
-    private func enhanceTextIfNeeded(_ text: String) async throws -> String {
+    private func enhanceTextIfNeeded(_ text: String, useAppBranchPrompt: Bool = true) async throws -> String {
+        let prompt = useAppBranchPrompt ? resolvedEnhancementPrompt() : resolvedGlobalEnhancementPrompt()
+        if !useAppBranchPrompt {
+            VoxtLog.info("Enhancement prompt source: global/default (translation flow)")
+        }
         switch enhancementMode {
         case .off:
             return text
         case .appleIntelligence:
             guard let enhancer else { return text }
             if #available(macOS 26.0, *) {
-                let prompt = resolvedEnhancementPrompt()
                 return try await enhancer.enhance(text, systemPrompt: prompt)
             }
             return text
         case .customLLM:
             guard customLLMManager.isModelDownloaded(repo: customLLMManager.currentModelRepo) else { return text }
-            let prompt = resolvedEnhancementPrompt()
             return try await customLLMManager.enhance(text, systemPrompt: prompt)
         }
     }
 
     private func translateText(_ text: String, targetLanguage: TranslationTargetLanguage) async throws -> String {
-        let resolvedPrompt = translationSystemPrompt.replacingOccurrences(
+        let translationPrompt = translationSystemPrompt.replacingOccurrences(
             of: "{target_language}",
             with: targetLanguage.instructionName
         )
+        let resolvedPrompt = translationPrompt
         let translationRepo = translationCustomLLMRepo
+        VoxtLog.info(
+            "Translation request. promptChars=\(resolvedPrompt.count), inputChars=\(text.count), translationRepo=\(translationRepo)"
+        )
 
         switch enhancementMode {
         case .customLLM where customLLMManager.isModelDownloaded(repo: translationRepo):
+            VoxtLog.info("Translation provider selected: customLLM(primary)")
             return try await customLLMManager.translate(
                 text,
                 targetLanguage: targetLanguage,
@@ -382,6 +398,7 @@ extension AppDelegate {
                 modelRepo: translationRepo
             )
         case .customLLM:
+            VoxtLog.warning("Translation primary customLLM unavailable: model not downloaded. repo=\(translationRepo)")
             showOverlayStatus(
                 String(localized: "Custom LLM model is not installed. Open Settings > Model to install it."),
                 clearAfter: 2.5
@@ -391,6 +408,7 @@ extension AppDelegate {
         }
 
         if #available(macOS 26.0, *), let enhancer {
+            VoxtLog.info("Translation provider selected: appleIntelligence")
             return try await enhancer.translate(
                 text,
                 targetLanguage: targetLanguage,
@@ -399,6 +417,7 @@ extension AppDelegate {
         }
 
         if customLLMManager.isModelDownloaded(repo: translationRepo) {
+            VoxtLog.info("Translation provider selected: customLLM(fallback)")
             return try await customLLMManager.translate(
                 text,
                 targetLanguage: targetLanguage,
@@ -407,7 +426,15 @@ extension AppDelegate {
             )
         }
 
+        VoxtLog.warning("Translation provider unavailable: returning original text.")
         return text
+    }
+
+    private func looksUntranslated(source: String, result: String) -> Bool {
+        let sourceTrimmed = source.trimmingCharacters(in: .whitespacesAndNewlines)
+        let resultTrimmed = result.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !sourceTrimmed.isEmpty, !resultTrimmed.isEmpty else { return false }
+        return sourceTrimmed.caseInsensitiveCompare(resultTrimmed) == .orderedSame
     }
 
     private func commitTranscription(_ text: String, llmDurationSeconds: TimeInterval?) {

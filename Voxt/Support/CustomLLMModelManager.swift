@@ -5,6 +5,10 @@ import MLXLMCommon
 
 @MainActor
 class CustomLLMModelManager: ObservableObject {
+    private struct TextResultPayload: Decodable {
+        let resultText: String
+    }
+
     static let defaultHubBaseURL = URL(string: "https://huggingface.co")!
     static let mirrorHubBaseURL = URL(string: "https://hf-mirror.com")!
     static let hubUserAgent = "Voxt/1.0 (CustomLLM)"
@@ -176,14 +180,13 @@ class CustomLLMModelManager: ObservableObject {
             topP: 0.95
         )
 
-        let prompt = """
-        Clean up this transcription:
-
-        \(input)
-        """
+        let prompt = structuredOutputPrompt(
+            taskInstruction: "Clean up this transcription while preserving meaning and style.",
+            input: input
+        )
 
         let response = try await session.respond(to: modelPrompt(prompt, repo: modelRepo))
-        let cleaned = sanitizeModelOutput(response)
+        let cleaned = extractResultText(response)
         return cleaned.isEmpty ? rawText : cleaned
     }
 
@@ -224,8 +227,12 @@ class CustomLLMModelManager: ObservableObject {
             temperature: 0.1,
             topP: 0.95
         )
-        let response = try await session.respond(to: modelPrompt(text, repo: modelRepo))
-        return sanitizeModelOutput(response)
+        let prompt = structuredOutputPrompt(
+            taskInstruction: "Process the input according to the instructions.",
+            input: text
+        )
+        let response = try await session.respond(to: modelPrompt(prompt, repo: modelRepo))
+        return extractResultText(response)
     }
 
     private func container(for repo: String) async throws -> ModelContainer {
@@ -654,13 +661,92 @@ class CustomLLMModelManager: ObservableObject {
         }
     }
 
+    private func structuredOutputPrompt(taskInstruction: String, input: String) -> String {
+        """
+        \(taskInstruction)
+
+        Return only valid JSON with exactly one key:
+        {"resultText":"..."}
+
+        Input:
+        \(input)
+        """
+    }
+
+    private func extractResultText(_ output: String) -> String {
+        let normalized = sanitizeModelOutput(output)
+        if let parsed = decodeStructuredResultText(from: normalized) {
+            return parsed
+        }
+        return normalized
+    }
+
+    private func decodeStructuredResultText(from output: String) -> String? {
+        for candidate in jsonCandidates(from: output) {
+            guard let data = candidate.data(using: .utf8),
+                  let decoded = try? JSONDecoder().decode(TextResultPayload.self, from: data) else {
+                continue
+            }
+            let text = Self.normalizeResultText(decoded.resultText)
+            if !text.isEmpty {
+                return text
+            }
+        }
+        return nil
+    }
+
+    private func jsonCandidates(from output: String) -> [String] {
+        let normalized = output.trimmingCharacters(in: .whitespacesAndNewlines)
+        var candidates: [String] = [normalized]
+
+        let unfenced = Self.unwrapCodeFenceIfNeeded(normalized)
+        if unfenced != normalized {
+            candidates.append(unfenced)
+        }
+
+        if let jsonObject = Self.extractFirstJSONObject(in: unfenced),
+           !candidates.contains(jsonObject) {
+            candidates.append(jsonObject)
+        }
+
+        return candidates
+    }
+
+    private static func extractFirstJSONObject(in text: String) -> String? {
+        guard let start = text.firstIndex(of: "{"),
+              let end = text.lastIndex(of: "}"),
+              start <= end else {
+            return nil
+        }
+        return String(text[start...end])
+    }
+
     private func sanitizeModelOutput(_ output: String) -> String {
+        Self.normalizeResultText(output)
+    }
+
+    private static func normalizeResultText(_ output: String) -> String {
         var cleaned = output
         if let regex = try? NSRegularExpression(pattern: "<think>[\\s\\S]*?</think>", options: [.caseInsensitive]) {
             let range = NSRange(location: 0, length: (cleaned as NSString).length)
             cleaned = regex.stringByReplacingMatches(in: cleaned, options: [], range: range, withTemplate: "")
         }
+        cleaned = unwrapCodeFenceIfNeeded(cleaned)
         return cleaned.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private static func unwrapCodeFenceIfNeeded(_ text: String) -> String {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.hasPrefix("```"), trimmed.hasSuffix("```") else {
+            return trimmed
+        }
+        var lines = trimmed.components(separatedBy: .newlines)
+        guard lines.count >= 2 else { return trimmed }
+        lines.removeFirst()
+        if let last = lines.last, last.trimmingCharacters(in: .whitespacesAndNewlines) == "```" {
+            lines.removeLast()
+        }
+        return lines.joined(separator: "\n")
     }
 
     private func cacheDirectory(for repo: String) -> URL? {

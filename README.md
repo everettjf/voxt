@@ -35,6 +35,13 @@ https://github.com/user-attachments/assets/23d42c24-7128-4bdb-bc1d-98509e69d97e
   - `Transcription` (normal speech-to-text)
   - `Translation` (speech-to-text then translation)
 - Two trigger modes: `Long Press (Release to End)` / `Tap (Press to Toggle)`.
+- Hotkey operation semantics:
+  - Long Press:
+    - Hold transcription hotkey (`fn`) to start transcription, release `fn` to stop.
+    - Hold translation hotkey (`fn+shift`) to start translation mode, release `fn+shift` to stop.
+  - Tap:
+    - Tap transcription hotkey (`fn`) to start, tap `fn` again to stop.
+    - Tap translation hotkey (`fn+shift`) to start translation mode.
 - Two STT engines:
   - `MLX Audio (On-device)` with local downloadable models
   - `Direct Dictation` powered by Apple Speech
@@ -59,8 +66,13 @@ https://github.com/user-attachments/assets/23d42c24-7128-4bdb-bc1d-98509e69d97e
    - MLX: staged correction (intermediate + final pass)
    - Dictation: streaming `SFSpeechRecognizer` output
 4. Text pipeline by mode:
-   - Transcription mode: optional enhancement (Off / Apple Intelligence / Custom LLM)
-   - Translation mode: optional enhancement first, then translate to target language
+   - Transcription mode:
+     - ASR -> optional enhancement (Off / Apple Intelligence / Custom LLM)
+     - Enhancement prompt can come from App Branch (App/URL match) or global fallback.
+   - Translation mode:
+     - ASR -> enhancement -> translation (two LLM calls)
+     - Enhancement stage still uses App Branch prompt routing.
+     - Translation stage uses dedicated translation prompt with output-only constraints.
 5. Output is injected with clipboard + simulated `Cmd+V`, and metadata can be saved to history.
 
 ## Engines
@@ -93,8 +105,17 @@ https://github.com/user-attachments/assets/23d42c24-7128-4bdb-bc1d-98509e69d97e
 
 - `Qwen/Qwen2-1.5B-Instruct` (default): general enhancement/translation with lower resource pressure.
 - `Qwen/Qwen2.5-3B-Instruct`: stronger formatting/reasoning with higher resource usage.
-- `mlx-community/Qwen3.5-0.8B-MLX-4bit`: lightweight Qwen3.5 option with fast local inference.
-- `mlx-community/Qwen3.5-2B-MLX-4bit`: higher-quality Qwen3.5 option with moderate resource usage.
+- `mlx-community/Qwen3-4B-4bit`: balanced Qwen3 quality and performance.
+- `mlx-community/Qwen3-8B-4bit`: higher-quality Qwen3 option.
+- `mlx-community/GLM-4-9B-0414-4bit`: strong multilingual instruction following.
+- `mlx-community/Llama-3.2-3B-Instruct-4bit`: lightweight local Llama option.
+- `mlx-community/Llama-3.2-1B-Instruct-4bit`: smallest Llama footprint.
+- `mlx-community/Meta-Llama-3-8B-Instruct-4bit`: general-purpose 8B Llama.
+- `mlx-community/Meta-Llama-3.1-8B-Instruct-4bit`: refined 8B Llama 3.1 option.
+- `mlx-community/Mistral-7B-Instruct-v0.3-4bit`: concise instruction-following.
+- `mlx-community/Mistral-Nemo-Instruct-2407-4bit`: improved Mistral Nemo instruction model.
+- `mlx-community/gemma-2-2b-it-4bit`: compact Gemma 2 instruction model.
+- `mlx-community/gemma-2-9b-it-4bit`: larger Gemma 2 option for better output quality.
 
 ## Model Comparison (Relative)
 
@@ -116,6 +137,10 @@ https://github.com/user-attachments/assets/23d42c24-7128-4bdb-bc1d-98509e69d97e
 | --- | --- | --- | --- | --- |
 | Qwen2 1.5B Instruct | Medium-High | High | Low-Medium | General enhancement and translation |
 | Qwen2.5 3B Instruct | High | Medium | Medium-High | Better formatting and consistency |
+| Qwen3 4B (4bit) | High | Medium | Medium | Daily local enhancement and translation |
+| Qwen3 8B (4bit) | Very High | Medium-Low | High | Quality-first local generation |
+| Llama 3.2 1B (4bit) | Medium | Very High | Low | Lightweight devices and fast response |
+| Mistral 7B v0.3 (4bit) | High | Medium | Medium-High | Stable concise outputs |
 
 ## Install & Build
 

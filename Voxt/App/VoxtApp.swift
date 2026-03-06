@@ -128,6 +128,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     var sessionOutputMode: SessionOutputMode = .transcription
     var enhancementContextSnapshot: EnhancementContextSnapshot?
     var lastEnhancementPromptContext: EnhancementPromptContext?
+    let tapStopGuardInterval: TimeInterval = 0.35
 
     override init() {
         let repo = UserDefaults.standard.string(forKey: AppPreferenceKey.mlxModelRepo)
@@ -276,6 +277,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 self.beginRecording(outputMode: .transcription)
             case .tap:
                 if self.isSessionActive {
+                    guard !self.shouldIgnoreTapStop() else { return }
                     self.endRecording()
                 } else {
                     self.beginRecording(outputMode: .transcription)
@@ -296,10 +298,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 self.beginRecording(outputMode: .translation)
             case .tap:
                 if self.isSessionActive {
-                    // In tap mode, translation hotkey should never mutate an active
-                    // transcription session into translation mode. If a session is
-                    // already running, treat this as a stop action only.
-                    self.endRecording()
                 } else {
                     self.beginRecording(outputMode: .translation)
                 }
@@ -313,6 +311,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
         hotkeyManager.start()
         VoxtLog.info("Hotkey callbacks configured.")
+    }
+
+    private func shouldIgnoreTapStop() -> Bool {
+        guard let startedAt = recordingStartedAt else { return false }
+        let elapsed = Date().timeIntervalSince(startedAt)
+        return elapsed < tapStopGuardInterval
     }
 
 }

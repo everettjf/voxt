@@ -35,6 +35,13 @@ https://github.com/user-attachments/assets/23d42c24-7128-4bdb-bc1d-98509e69d97e
   - `Transcription`（普通转写）
   - `Translation`（转写后翻译）
 - 双触发模式：`Long Press (Release to End)` / `Tap (Press to Toggle)`。
+- 快捷键操作语义：
+  - 长按：
+    - 按住转写快捷键（`fn`）开始转写，松开 `fn` 结束。
+    - 按住翻译快捷键（`fn+shift`）开始翻译模式，松开 `fn+shift` 结束。
+  - 点按：
+    - 点按转写快捷键（`fn`）开始，再次点按 `fn` 结束。
+    - 点按翻译快捷键（`fn+shift`）开始翻译模式。
 - 双语音引擎：
   - `MLX Audio (On-device)`：本地模型转写
   - `Direct Dictation`：Apple Speech 实时听写
@@ -59,8 +66,13 @@ https://github.com/user-attachments/assets/23d42c24-7128-4bdb-bc1d-98509e69d97e
    - MLX：分阶段纠正（中间修正 + 停止后最终修正）
    - Dictation：`SFSpeechRecognizer` 流式结果
 4. 根据模式执行文本处理：
-   - 普通模式：可选增强（Off / Apple Intelligence / Custom LLM）
-   - 翻译模式：可选先增强，再按目标语言翻译
+   - 普通模式：
+     - ASR -> 可选增强（Off / Apple Intelligence / Custom LLM）
+     - 增强提示词可走 App Branch（App/URL 命中）或全局回退。
+   - 翻译模式：
+     - ASR -> 增强 -> 翻译（两次 LLM 调用）
+     - 增强阶段仍使用 App Branch 增强路由。
+     - 翻译阶段使用独立翻译提示词，并约束只输出结果文本。
 5. 通过粘贴板 + `Cmd+V` 注入文本，并记录历史与耗时。
 
 ## 引擎介绍
@@ -93,8 +105,17 @@ https://github.com/user-attachments/assets/23d42c24-7128-4bdb-bc1d-98509e69d97e
 
 - `Qwen/Qwen2-1.5B-Instruct`（默认）：通用增强/翻译，资源压力更低。
 - `Qwen/Qwen2.5-3B-Instruct`：更强格式与推理能力，速度和占用更高。
-- `mlx-community/Qwen3.5-0.8B-MLX-4bit`：轻量 Qwen3.5，本地推理速度更快。
-- `mlx-community/Qwen3.5-2B-MLX-4bit`：更高质量 Qwen3.5，资源占用中等。
+- `mlx-community/Qwen3-4B-4bit`：Qwen3 质量与速度均衡。
+- `mlx-community/Qwen3-8B-4bit`：更高质量 Qwen3 选项。
+- `mlx-community/GLM-4-9B-0414-4bit`：多语言指令跟随能力更强。
+- `mlx-community/Llama-3.2-3B-Instruct-4bit`：轻量 Llama 本地增强方案。
+- `mlx-community/Llama-3.2-1B-Instruct-4bit`：最小占用 Llama 方案。
+- `mlx-community/Meta-Llama-3-8B-Instruct-4bit`：通用 8B Llama。
+- `mlx-community/Meta-Llama-3.1-8B-Instruct-4bit`：更稳的 8B Llama 3.1。
+- `mlx-community/Mistral-7B-Instruct-v0.3-4bit`：简洁指令输出表现稳定。
+- `mlx-community/Mistral-Nemo-Instruct-2407-4bit`：Nemo 架构指令能力更强。
+- `mlx-community/gemma-2-2b-it-4bit`：轻量 Gemma 2 指令模型。
+- `mlx-community/gemma-2-9b-it-4bit`：大参数 Gemma 2，质量更高。
 
 ## 模型效果对比（相对）
 
@@ -116,6 +137,10 @@ https://github.com/user-attachments/assets/23d42c24-7128-4bdb-bc1d-98509e69d97e
 | --- | --- | --- | --- | --- |
 | Qwen2 1.5B Instruct | 中-高 | 高 | 低-中 | 常规润色与翻译 |
 | Qwen2.5 3B Instruct | 高 | 中 | 中-高 | 质量和格式一致性优先 |
+| Qwen3 4B (4bit) | 高 | 中 | 中 | 日常本地增强与翻译 |
+| Qwen3 8B (4bit) | 很高 | 中-低 | 高 | 质量优先本地生成 |
+| Llama 3.2 1B (4bit) | 中 | 很高 | 低 | 轻量设备与快速响应 |
+| Mistral 7B v0.3 (4bit) | 高 | 中 | 中-高 | 简洁稳定输出 |
 
 ## 安装与构建
 

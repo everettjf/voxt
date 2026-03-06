@@ -221,6 +221,12 @@ struct HotkeySettingsView: View {
                     Text("Both actions support custom shortcuts. You can use a single key (such as fn) or a key combination.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                    Text("Long Press: Hold transcription hotkey to start transcription and release it to stop; hold translation hotkey to start translation and release it to stop.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Text("Tap: Tap transcription hotkey to start and tap transcription hotkey again to stop. Translation hotkey starts translation sessions.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(8)
