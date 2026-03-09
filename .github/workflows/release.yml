@@ -285,6 +285,40 @@ jobs:
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY=""
 
+      - name: Validate Sparkle Info.plist keys
+        run: |
+          set -euo pipefail
+          APP_PATH="build/DerivedData/Build/Products/Release/Voxt.app"
+          PLIST_PATH="$APP_PATH/Contents/Info.plist"
+          if [ ! -f "$PLIST_PATH" ]; then
+            echo "::error::Info.plist not found at $PLIST_PATH"
+            exit 1
+          fi
+
+          require_bool_true() {
+            local key="$1"
+            local value
+            value="$(/usr/libexec/PlistBuddy -c "Print :$key" "$PLIST_PATH" 2>/dev/null || true)"
+            if [ "$value" != "true" ]; then
+              echo "::error::$key must be true in $PLIST_PATH, got: ${value:-<missing>}"
+              exit 1
+            fi
+          }
+
+          require_non_empty_string() {
+            local key="$1"
+            local value
+            value="$(/usr/libexec/PlistBuddy -c "Print :$key" "$PLIST_PATH" 2>/dev/null || true)"
+            if [ -z "$value" ]; then
+              echo "::error::$key must be a non-empty string in $PLIST_PATH"
+              exit 1
+            fi
+          }
+
+          require_bool_true "SUEnableInstallerLauncherService"
+          require_non_empty_string "SUFeedURL"
+          require_non_empty_string "SUPublicEDKey"
+
       - name: Sign Sparkle and app bundle with Developer ID
         run: |
           set -euo pipefail

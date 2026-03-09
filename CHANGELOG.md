@@ -6,6 +6,11 @@ The format is based on Keep a Changelog.
 
 ## [Unreleased]
 
+## [1.4.1] - 2026-03-09
+
+### Fixed
+- Fixed Sparkle update installer configuration and release checks to prevent package install launch failures.
+
 ## [1.4.0] - 2026-03-08
 
 - Release v1.4.0.

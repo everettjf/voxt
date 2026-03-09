@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleDisplayName</key>
+    <string>Voxt</string>
+    <key>LSApplicationCategoryType</key>
+    <string>public.app-category.utilities</string>
+    <key>NSAppleEventsUsageDescription</key>
+    <string>Voxt needs automation access to read the active browser tab URL for app branch enhancement.</string>
+    <key>NSHumanReadableCopyright</key>
+    <string></string>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>Voxt needs microphone access to transcribe your speech.</string>
+    <key>NSSpeechRecognitionUsageDescription</key>
+    <string>Voxt uses speech recognition for direct dictation.</string>
+    <key>SUEnableInstallerLauncherService</key>
+    <true/>
+    <key>SUFeedURL</key>
+    <string>https://raw.githubusercontent.com/hehehai/voxt/main/updates/appcast.xml</string>
+    <key>SUPublicEDKey</key>
+    <string>iMt1voRdgfUUpKxdY7DliGLaOl17gJFB8Jhlo5ox2eE=</string>
+</dict>
+</plist>
