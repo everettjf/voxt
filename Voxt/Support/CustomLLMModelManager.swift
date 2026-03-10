@@ -8,6 +8,7 @@ class CustomLLMModelManager: ObservableObject {
     private enum LocalTaskKind {
         case enhancement
         case translation
+        case rewrite
     }
 
     private struct TextResultPayload: Decodable {
@@ -188,13 +189,13 @@ class CustomLLMModelManager: ObservableObject {
         )
 
         let startedAt = Date()
-        VoxtLog.info(
+        VoxtLog.llm(
             "Custom LLM enhance started. repo=\(modelRepo), inputChars=\(input.count), maxTokens=\(params.maxTokens ?? 0), temperature=\(params.temperature), topP=\(params.topP)"
         )
         let response = try await session.respond(to: modelPrompt(prompt, repo: modelRepo))
         let elapsedMs = Int(Date().timeIntervalSince(startedAt) * 1000)
         let cleaned = extractResultText(response)
-        VoxtLog.info(
+        VoxtLog.llm(
             "Custom LLM enhance completed. repo=\(modelRepo), outputChars=\(cleaned.count), elapsedMs=\(elapsedMs)"
         )
         return cleaned.isEmpty ? rawText : cleaned
@@ -215,6 +216,24 @@ class CustomLLMModelManager: ObservableObject {
             modelRepo: modelRepo
         )
         return translated.isEmpty ? text : translated
+    }
+
+    func rewrite(
+        sourceText: String,
+        dictatedPrompt: String,
+        systemPrompt: String,
+        modelRepo: String
+    ) async throws -> String {
+        let instruction = dictatedPrompt.trimmingCharacters(in: .whitespacesAndNewlines)
+        let source = sourceText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !instruction.isEmpty || !source.isEmpty else { return sourceText }
+        let result = try await runRewritePrompt(
+            sourceText: source,
+            dictatedPrompt: instruction,
+            instructions: systemPrompt,
+            modelRepo: modelRepo
+        )
+        return result.isEmpty ? sourceText : result
     }
 
     private func runTranslationPrompt(
@@ -239,21 +258,69 @@ class CustomLLMModelManager: ObservableObject {
             input: text
         )
         let startedAt = Date()
-        VoxtLog.info(
+        VoxtLog.llm(
             "Custom LLM translate started. repo=\(modelRepo), inputChars=\(text.count), maxTokens=\(params.maxTokens ?? 0), temperature=\(params.temperature), topP=\(params.topP)"
         )
         let response = try await session.respond(to: modelPrompt(prompt, repo: modelRepo))
         let elapsedMs = Int(Date().timeIntervalSince(startedAt) * 1000)
         let result = extractResultText(response)
-        VoxtLog.info(
+        VoxtLog.llm(
             "Custom LLM translate completed. repo=\(modelRepo), outputChars=\(result.count), elapsedMs=\(elapsedMs)"
+        )
+        return result
+    }
+
+    private func runRewritePrompt(
+        sourceText: String,
+        dictatedPrompt: String,
+        instructions: String,
+        modelRepo: String
+    ) async throws -> String {
+        guard isModelDownloaded(repo: modelRepo) else {
+            throw NSError(
+                domain: "Voxt.CustomLLM",
+                code: 404,
+                userInfo: [NSLocalizedDescriptionKey: "Custom LLM model is not installed locally."]
+            )
+        }
+
+        let container = try await container(for: modelRepo)
+        let session = ChatSession(container, instructions: instructions)
+        let combinedInput = """
+        Spoken instruction:
+        \(dictatedPrompt)
+
+        Selected source text:
+        \(sourceText)
+        """
+        let params = generationParameters(for: .rewrite, inputLength: combinedInput.count)
+        session.generateParameters = params
+        let prompt = structuredOutputPrompt(
+            taskInstruction: "Produce the final text to insert according to the instructions.",
+            input: combinedInput
+        )
+        let startedAt = Date()
+        VoxtLog.llm(
+            "Custom LLM rewrite started. repo=\(modelRepo), instructionChars=\(dictatedPrompt.count), sourceChars=\(sourceText.count), maxTokens=\(params.maxTokens ?? 0), temperature=\(params.temperature), topP=\(params.topP)"
+        )
+        let response = try await session.respond(to: modelPrompt(prompt, repo: modelRepo))
+        let elapsedMs = Int(Date().timeIntervalSince(startedAt) * 1000)
+        let result = extractResultText(response)
+        VoxtLog.llm(
+            "Custom LLM rewrite completed. repo=\(modelRepo), outputChars=\(result.count), elapsedMs=\(elapsedMs)"
         )
         return result
     }
 
     private func generationParameters(for kind: LocalTaskKind, inputLength: Int) -> GenerateParameters {
         let safeInput = max(1, inputLength)
-        let baseMultiplier: Double = (kind == .translation) ? 1.35 : 1.10
+        let baseMultiplier: Double
+        switch kind {
+        case .enhancement:
+            baseMultiplier = 1.10
+        case .translation, .rewrite:
+            baseMultiplier = 1.35
+        }
         let estimated = Int(Double(safeInput) * baseMultiplier)
         let budget = max(96, min(estimated + 48, 320))
         return GenerateParameters(

@@ -23,12 +23,15 @@ struct HotkeySettingsView: View {
     private enum RecordingField {
         case transcription
         case translation
+        case rewrite
     }
 
     @AppStorage(AppPreferenceKey.hotkeyKeyCode) private var hotkeyKeyCode = Int(HotkeyPreference.defaultKeyCode)
     @AppStorage(AppPreferenceKey.hotkeyModifiers) private var hotkeyModifiers = Int(HotkeyPreference.defaultModifiers.rawValue)
     @AppStorage(AppPreferenceKey.translationHotkeyKeyCode) private var translationHotkeyKeyCode = Int(HotkeyPreference.defaultTranslationKeyCode)
     @AppStorage(AppPreferenceKey.translationHotkeyModifiers) private var translationHotkeyModifiers = Int(HotkeyPreference.defaultTranslationModifiers.rawValue)
+    @AppStorage(AppPreferenceKey.rewriteHotkeyKeyCode) private var rewriteHotkeyKeyCode = Int(HotkeyPreference.defaultRewriteKeyCode)
+    @AppStorage(AppPreferenceKey.rewriteHotkeyModifiers) private var rewriteHotkeyModifiers = Int(HotkeyPreference.defaultRewriteModifiers.rawValue)
     @AppStorage(AppPreferenceKey.hotkeyTriggerMode) private var hotkeyTriggerMode = HotkeyPreference.defaultTriggerMode.rawValue
     @AppStorage(AppPreferenceKey.interfaceLanguage) private var interfaceLanguageRaw = AppInterfaceLanguage.system.rawValue
 
@@ -76,12 +79,35 @@ struct HotkeySettingsView: View {
         )
     }
 
+    private var rewriteHotkeyBinding: Binding<UInt16> {
+        Binding(
+            get: { UInt16(rewriteHotkeyKeyCode) },
+            set: { rewriteHotkeyKeyCode = Int($0) }
+        )
+    }
+
+    private var rewriteModifierBinding: Binding<NSEvent.ModifierFlags> {
+        Binding(
+            get: { NSEvent.ModifierFlags(rawValue: UInt(rewriteHotkeyModifiers)).intersection(.hotkeyRelevant) },
+            set: { rewriteHotkeyModifiers = Int($0.rawValue) }
+        )
+    }
+
+    private var currentRewriteHotkey: HotkeyPreference.Hotkey {
+        HotkeyPreference.Hotkey(
+            keyCode: rewriteHotkeyBinding.wrappedValue,
+            modifiers: rewriteModifierBinding.wrappedValue
+        )
+    }
+
     private var activeKeyCodeBinding: Binding<UInt16> {
         Binding(
             get: {
                 switch recordingField {
                 case .translation:
                     return UInt16(translationHotkeyKeyCode)
+                case .rewrite:
+                    return UInt16(rewriteHotkeyKeyCode)
                 default:
                     return UInt16(hotkeyKeyCode)
                 }
@@ -90,6 +116,8 @@ struct HotkeySettingsView: View {
                 switch recordingField {
                 case .translation:
                     translationHotkeyKeyCode = Int(newValue)
+                case .rewrite:
+                    rewriteHotkeyKeyCode = Int(newValue)
                 default:
                     hotkeyKeyCode = Int(newValue)
                 }
@@ -103,6 +131,8 @@ struct HotkeySettingsView: View {
                 switch recordingField {
                 case .translation:
                     return NSEvent.ModifierFlags(rawValue: UInt(translationHotkeyModifiers)).intersection(.hotkeyRelevant)
+                case .rewrite:
+                    return NSEvent.ModifierFlags(rawValue: UInt(rewriteHotkeyModifiers)).intersection(.hotkeyRelevant)
                 default:
                     return NSEvent.ModifierFlags(rawValue: UInt(hotkeyModifiers)).intersection(.hotkeyRelevant)
                 }
@@ -111,6 +141,8 @@ struct HotkeySettingsView: View {
                 switch recordingField {
                 case .translation:
                     translationHotkeyModifiers = Int(newValue.rawValue)
+                case .rewrite:
+                    rewriteHotkeyModifiers = Int(newValue.rawValue)
                 default:
                     hotkeyModifiers = Int(newValue.rawValue)
                 }
@@ -165,6 +197,17 @@ struct HotkeySettingsView: View {
                         }
                     )
 
+                    shortcutInput(
+                        titleKey: "Content Rewrite",
+                        hotkey: currentRewriteHotkey,
+                        isRecording: recordingField == .rewrite,
+                        onFocus: { recordingField = .rewrite },
+                        onReset: {
+                            rewriteHotkeyBinding.wrappedValue = HotkeyPreference.defaultRewriteKeyCode
+                            rewriteModifierBinding.wrappedValue = HotkeyPreference.defaultRewriteModifiers
+                        }
+                    )
+
                     if recordingField != nil {
                         Text("Type your shortcut now. Press Esc to cancel recording.")
                             .font(.caption)
@@ -183,8 +226,26 @@ struct HotkeySettingsView: View {
                             .foregroundStyle(.red)
                     }
 
+                    if let conflict = hotkeyConflictMessage(for: currentRewriteHotkey) {
+                        Text(localizedString("Content rewrite shortcut: %@", conflict))
+                            .font(.caption)
+                            .foregroundStyle(.red)
+                    }
+
                     if currentHotkey == currentTranslationHotkey {
                         Text("Transcription and translation shortcuts should be different.")
+                            .font(.caption)
+                            .foregroundStyle(.red)
+                    }
+
+                    if currentHotkey == currentRewriteHotkey {
+                        Text("Transcription and content rewrite shortcuts should be different.")
+                            .font(.caption)
+                            .foregroundStyle(.red)
+                    }
+
+                    if currentTranslationHotkey == currentRewriteHotkey {
+                        Text("Translation and content rewrite shortcuts should be different.")
                             .font(.caption)
                             .foregroundStyle(.red)
                     }
@@ -221,10 +282,10 @@ struct HotkeySettingsView: View {
                     Text("Both actions support custom shortcuts. You can use a single key (such as fn) or a key combination.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                    Text("Long Press: Hold transcription hotkey to start transcription and release it to stop; hold translation hotkey to start translation and release it to stop.")
+                    Text("Long Press: Hold a hotkey to start its session and release it to stop. This works for transcription, translation, and content rewrite.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                    Text("Tap: Tap transcription hotkey to start and tap transcription hotkey again to stop. Translation hotkey starts translation sessions.")
+                    Text("Tap: Tap transcription hotkey to start and tap transcription hotkey again to stop. Translation and content rewrite hotkeys start their own sessions.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     Text("Selected text shortcut behavior: If text is selected in a focused input, pressing the translation shortcut translates and replaces the selection directly. Tap and long press behave the same.")

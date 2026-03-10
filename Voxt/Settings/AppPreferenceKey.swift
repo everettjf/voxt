@@ -7,11 +7,15 @@ enum AppPreferenceKey {
     static let customLLMModelRepo = "customLLMModelRepo"
     static let translationCustomLLMModelRepo = "translationCustomLLMModelRepo"
     static let translationModelProvider = "translationModelProvider"
+    static let rewriteSystemPrompt = "rewriteSystemPrompt"
+    static let rewriteCustomLLMModelRepo = "rewriteCustomLLMModelRepo"
+    static let rewriteModelProvider = "rewriteModelProvider"
     static let remoteASRSelectedProvider = "remoteASRSelectedProvider"
     static let remoteASRProviderConfigurations = "remoteASRProviderConfigurations"
     static let remoteLLMSelectedProvider = "remoteLLMSelectedProvider"
     static let remoteLLMProviderConfigurations = "remoteLLMProviderConfigurations"
     static let translationRemoteLLMProvider = "translationRemoteLLMProvider"
+    static let rewriteRemoteLLMProvider = "rewriteRemoteLLMProvider"
     static let modelStorageRootPath = "modelStorageRootPath"
     static let modelStorageRootBookmark = "modelStorageRootBookmark"
     static let useHfMirror = "useHfMirror"
@@ -19,6 +23,8 @@ enum AppPreferenceKey {
     static let hotkeyModifiers = "hotkeyModifiers"
     static let translationHotkeyKeyCode = "translationHotkeyKeyCode"
     static let translationHotkeyModifiers = "translationHotkeyModifiers"
+    static let rewriteHotkeyKeyCode = "rewriteHotkeyKeyCode"
+    static let rewriteHotkeyModifiers = "rewriteHotkeyModifiers"
     static let hotkeyTriggerMode = "hotkeyTriggerMode"
     static let selectedInputDeviceID = "selectedInputDeviceID"
     static let interactionSoundsEnabled = "interactionSoundsEnabled"
@@ -38,6 +44,8 @@ enum AppPreferenceKey {
     static let historyEnabled = "historyEnabled"
     static let historyRetentionPeriod = "historyRetentionPeriod"
     static let autoCheckForUpdates = "autoCheckForUpdates"
+    static let hotkeyDebugLoggingEnabled = "hotkeyDebugLoggingEnabled"
+    static let llmDebugLoggingEnabled = "llmDebugLoggingEnabled"
     static let useSystemProxy = "useSystemProxy"
     static let networkProxyMode = "networkProxyMode"
     static let customProxyScheme = "customProxyScheme"
@@ -89,5 +97,25 @@ enum AppPreferenceKey {
         4. Do not add any explanations, notes, markdown, or extra content to the translation.
 
         Return only the translated text as your response.
+        """
+
+    static let defaultRewritePrompt = """
+        You are Voxt's content writing assistant. Use the spoken instruction and the optional selected source text to produce the final text that should be inserted into the current input field.
+
+        Spoken instruction:
+        <spoken_instruction>
+        {{DICTATED_PROMPT}}
+        </spoken_instruction>
+
+        Selected source text:
+        <selected_source_text>
+        {{SOURCE_TEXT}}
+        </selected_source_text>
+
+        Rules:
+        1. Treat the spoken instruction as the user's intent for what to write or how to transform the selected source text.
+        2. If selected source text is present, use it as the original content to rewrite, expand, shorten, reply to, or otherwise transform according to the spoken instruction.
+        3. If selected source text is empty, generate the requested content directly from the spoken instruction.
+        4. Return only the final text to insert, with no explanations, markdown, labels, or commentary.
         """
 }

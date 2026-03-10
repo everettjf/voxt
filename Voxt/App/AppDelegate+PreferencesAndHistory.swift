@@ -67,6 +67,33 @@ extension AppDelegate {
         return RemoteLLMProvider(rawValue: value)
     }
 
+    var rewriteSystemPrompt: String {
+        let value = UserDefaults.standard.string(forKey: AppPreferenceKey.rewriteSystemPrompt)
+        if let value, !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return value
+        }
+        return AppPreferenceKey.defaultRewritePrompt
+    }
+
+    var rewriteCustomLLMRepo: String {
+        let value = UserDefaults.standard.string(forKey: AppPreferenceKey.rewriteCustomLLMModelRepo)
+        if let value, !value.isEmpty {
+            return value
+        }
+        return UserDefaults.standard.string(forKey: AppPreferenceKey.customLLMModelRepo)
+            ?? CustomLLMModelManager.defaultModelRepo
+    }
+
+    var rewriteModelProvider: RewriteModelProvider {
+        let value = UserDefaults.standard.string(forKey: AppPreferenceKey.rewriteModelProvider) ?? ""
+        return RewriteModelProvider(rawValue: value) ?? .customLLM
+    }
+
+    var rewriteRemoteLLMProvider: RemoteLLMProvider? {
+        let value = UserDefaults.standard.string(forKey: AppPreferenceKey.rewriteRemoteLLMProvider) ?? ""
+        return RemoteLLMProvider(rawValue: value)
+    }
+
     var remoteASRConfigurations: [String: RemoteProviderConfiguration] {
         let raw = UserDefaults.standard.string(forKey: AppPreferenceKey.remoteASRProviderConfigurations) ?? ""
         return RemoteModelConfigurationStore.loadConfigurations(from: raw)

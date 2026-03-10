@@ -36,14 +36,20 @@ struct HotkeyModifierInterpreter {
 
     static func shouldDelayTranscriptionTap(
         transcriptionHotkey: HotkeyPreference.Hotkey,
-        translationHotkey: HotkeyPreference.Hotkey,
+        prioritizedModifierHotkeys: [HotkeyPreference.Hotkey],
         transcriptionFlags: CGEventFlags,
-        translationFlags: CGEventFlags
+        prioritizedFlags: [CGEventFlags]
     ) -> Bool {
-        // Only needed for overlap such as transcription=fn and translation=fn+shift.
+        // Only needed for overlap such as transcription=fn and translation/rewrite=fn+shift/fn+control.
         guard isModifierOnly(transcriptionHotkey) else { return false }
-        guard isModifierOnly(translationHotkey) else { return false }
-        guard transcriptionFlags != translationFlags else { return false }
-        return translationFlags.contains(transcriptionFlags)
+        for (index, hotkey) in prioritizedModifierHotkeys.enumerated() {
+            guard isModifierOnly(hotkey) else { continue }
+            let flags = prioritizedFlags[index]
+            guard transcriptionFlags != flags else { continue }
+            if flags.contains(transcriptionFlags) {
+                return true
+            }
+        }
+        return false
     }
 }

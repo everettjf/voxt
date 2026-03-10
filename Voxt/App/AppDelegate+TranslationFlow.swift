@@ -27,6 +27,19 @@ extension AppDelegate {
         }
     }
 
+    private struct RewriteStage: SessionPipelineStage {
+        let sourceText: String
+        let transform: @MainActor (String, String) async throws -> String
+
+        var name: String { "rewrite" }
+
+        func run(context: SessionPipelineContext) async throws -> SessionPipelineContext {
+            var next = context
+            next.workingText = try await transform(context.workingText, sourceText)
+            return next
+        }
+    }
+
     private struct StrictRetryTranslateStage: SessionPipelineStage {
         let targetLanguage: TranslationTargetLanguage
         let shouldRetry: @MainActor (String, String) -> Bool
@@ -128,10 +141,59 @@ extension AppDelegate {
         return true
     }
 
+    func processRewriteTranscription(_ text: String, sessionID: UUID) {
+        guard shouldHandleCallbacks(for: sessionID) else { return }
+        let selectedSourceText = selectedTextFromSystemSelection()?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        VoxtLog.info(
+            "Rewrite flow started. promptChars=\(text.count), selectedSourceChars=\(selectedSourceText.count), enhancementMode=\(enhancementMode.rawValue)"
+        )
+        setEnhancingState(true)
+        Task {
+            defer {
+                self.setEnhancingState(false)
+                if self.shouldHandleCallbacks(for: sessionID) {
+                    self.finishSession()
+                }
+            }
+
+            let llmStartedAt = Date()
+            do {
+                let rewritten = try await self.runRewritePipeline(
+                    dictatedText: text,
+                    selectedSourceText: selectedSourceText
+                )
+                guard self.shouldHandleCallbacks(for: sessionID) else { return }
+                let llmDuration = Date().timeIntervalSince(llmStartedAt)
+                VoxtLog.info("Rewrite flow succeeded. outputChars=\(rewritten.count), llmDurationSec=\(String(format: "%.3f", llmDuration))")
+                self.commitTranscription(rewritten, llmDurationSeconds: llmDuration)
+            } catch {
+                guard self.shouldHandleCallbacks(for: sessionID) else { return }
+                VoxtLog.warning("Rewrite flow failed, using enhanced prompt fallback: \(error)")
+                let fallback = (try? await self.enhanceTextIfNeeded(text, useAppBranchPrompt: true)) ?? text
+                self.commitTranscription(fallback, llmDurationSeconds: nil)
+            }
+        }
+    }
+
     func resolvedRemoteLLMContext(forTranslation: Bool) -> (provider: RemoteLLMProvider, configuration: RemoteProviderConfiguration) {
         let provider: RemoteLLMProvider
         if forTranslation, let translationProvider = translationRemoteLLMProvider {
             provider = translationProvider
+        } else {
+            provider = remoteLLMSelectedProvider
+        }
+
+        let configuration = RemoteModelConfigurationStore.resolvedLLMConfiguration(
+            provider: provider,
+            stored: remoteLLMConfigurations
+        )
+        return (provider, configuration)
+    }
+
+    func resolvedRemoteLLMContext(forRewrite: Bool) -> (provider: RemoteLLMProvider, configuration: RemoteProviderConfiguration) {
+        let provider: RemoteLLMProvider
+        if forRewrite, let rewriteProvider = rewriteRemoteLLMProvider {
+            provider = rewriteProvider
         } else {
             provider = remoteLLMSelectedProvider
         }
@@ -181,7 +243,7 @@ extension AppDelegate {
         )
         let translationRepo = translationCustomLLMRepo
         let modelProvider = translationModelProvider
-        VoxtLog.info(
+        VoxtLog.llm(
             "Translation request. promptChars=\(resolvedPrompt.count), inputChars=\(text.count), provider=\(modelProvider.rawValue), translationRepo=\(translationRepo)"
         )
 
@@ -222,6 +284,53 @@ extension AppDelegate {
         }
     }
 
+    private func rewriteText(dictatedPrompt: String, sourceText: String) async throws -> String {
+        let resolvedPrompt = resolvedRewritePrompt(
+            dictatedPrompt: dictatedPrompt,
+            sourceText: sourceText
+        )
+        let rewriteRepo = rewriteCustomLLMRepo
+        let modelProvider = rewriteModelProvider
+        VoxtLog.llm(
+            "Rewrite request. promptChars=\(resolvedPrompt.count), dictatedChars=\(dictatedPrompt.count), sourceChars=\(sourceText.count), provider=\(modelProvider.rawValue), rewriteRepo=\(rewriteRepo)"
+        )
+
+        switch modelProvider {
+        case .customLLM:
+            guard customLLMManager.isModelDownloaded(repo: rewriteRepo) else {
+                VoxtLog.warning("Rewrite provider customLLM unavailable: model not downloaded. repo=\(rewriteRepo)")
+                showOverlayStatus(
+                    String(localized: "Custom LLM model is not installed. Open Settings > Model to install it."),
+                    clearAfter: 2.5
+                )
+                return dictatedPrompt
+            }
+            return try await customLLMManager.rewrite(
+                sourceText: sourceText,
+                dictatedPrompt: dictatedPrompt,
+                systemPrompt: resolvedPrompt,
+                modelRepo: rewriteRepo
+            )
+        case .remoteLLM:
+            let context = resolvedRemoteLLMContext(forRewrite: true)
+            guard context.configuration.hasUsableModel else {
+                VoxtLog.warning("Rewrite provider remoteLLM unavailable: no configured model.")
+                showOverlayStatus(
+                    String(localized: "No configured remote LLM model yet. Configure a provider in Settings > Model."),
+                    clearAfter: 2.5
+                )
+                return dictatedPrompt
+            }
+            return try await RemoteLLMRuntimeClient().rewrite(
+                sourceText: sourceText,
+                dictatedPrompt: dictatedPrompt,
+                systemPrompt: resolvedPrompt,
+                provider: context.provider,
+                configuration: context.configuration
+            )
+        }
+    }
+
     private func translateTextStrict(_ text: String, targetLanguage: TranslationTargetLanguage) async throws -> String {
         let strictPrompt = resolvedTranslationPrompt(
             targetLanguage: targetLanguage,
@@ -230,7 +339,7 @@ extension AppDelegate {
         )
         let translationRepo = translationCustomLLMRepo
         let modelProvider = translationModelProvider
-        VoxtLog.info(
+        VoxtLog.llm(
             "Strict translation retry. promptChars=\(strictPrompt.count), inputChars=\(text.count), provider=\(modelProvider.rawValue), translationRepo=\(translationRepo)"
         )
 
@@ -287,6 +396,12 @@ extension AppDelegate {
             - Return only the translated text.
             """
         return "\(basePrompt)\n\(enforcement)"
+    }
+
+    private func resolvedRewritePrompt(dictatedPrompt: String, sourceText: String) -> String {
+        rewriteSystemPrompt
+            .replacingOccurrences(of: "{{DICTATED_PROMPT}}", with: dictatedPrompt)
+            .replacingOccurrences(of: "{{SOURCE_TEXT}}", with: sourceText)
     }
 
     private func processSelectedTextTranslation(_ text: String) {
@@ -373,6 +488,33 @@ extension AppDelegate {
 
         let runner = SessionPipelineRunner(stages: stages)
         let initial = SessionPipelineContext(originalText: text, workingText: text)
+        let result = try await runner.run(initial: initial)
+        return result.workingText
+    }
+
+    private func runRewritePipeline(
+        dictatedText: String,
+        selectedSourceText: String
+    ) async throws -> String {
+        let stages: [any SessionPipelineStage] = [
+            EnhanceStage(
+                useAppBranchPrompt: true,
+                transform: { [weak self] value, useAppBranchPrompt in
+                    guard let self else { return value }
+                    return try await self.enhanceTextIfNeeded(value, useAppBranchPrompt: useAppBranchPrompt)
+                }
+            ),
+            RewriteStage(
+                sourceText: selectedSourceText,
+                transform: { [weak self] enhancedPrompt, sourceText in
+                    guard let self else { return enhancedPrompt }
+                    return try await self.rewriteText(dictatedPrompt: enhancedPrompt, sourceText: sourceText)
+                }
+            )
+        ]
+
+        let runner = SessionPipelineRunner(stages: stages)
+        let initial = SessionPipelineContext(originalText: dictatedText, workingText: dictatedText)
         let result = try await runner.run(initial: initial)
         return result.workingText
     }

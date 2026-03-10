@@ -34,6 +34,8 @@ struct HotkeyPreference {
     static let defaultModifiers: NSEvent.ModifierFlags = [.function]
     static let defaultTranslationKeyCode: UInt16 = modifierOnlyKeyCode
     static let defaultTranslationModifiers: NSEvent.ModifierFlags = [.function, .shift]
+    static let defaultRewriteKeyCode: UInt16 = modifierOnlyKeyCode
+    static let defaultRewriteModifiers: NSEvent.ModifierFlags = [.function, .control]
     static let defaultTriggerMode: TriggerMode = .tap
 
     static func registerDefaults() {
@@ -42,6 +44,8 @@ struct HotkeyPreference {
             AppPreferenceKey.hotkeyModifiers: Int(defaultModifiers.rawValue),
             AppPreferenceKey.translationHotkeyKeyCode: Int(defaultTranslationKeyCode),
             AppPreferenceKey.translationHotkeyModifiers: Int(defaultTranslationModifiers.rawValue),
+            AppPreferenceKey.rewriteHotkeyKeyCode: Int(defaultRewriteKeyCode),
+            AppPreferenceKey.rewriteHotkeyModifiers: Int(defaultRewriteModifiers.rawValue),
             AppPreferenceKey.hotkeyTriggerMode: defaultTriggerMode.rawValue
         ])
     }
@@ -94,6 +98,23 @@ struct HotkeyPreference {
     static func saveTranslation(keyCode: UInt16, modifiers: NSEvent.ModifierFlags) {
         UserDefaults.standard.set(Int(keyCode), forKey: AppPreferenceKey.translationHotkeyKeyCode)
         UserDefaults.standard.set(Int(modifiers.rawValue), forKey: AppPreferenceKey.translationHotkeyModifiers)
+    }
+
+    static func loadRewrite() -> Hotkey {
+        let defaults = UserDefaults.standard
+        let keyCodeValue = defaults.object(forKey: AppPreferenceKey.rewriteHotkeyKeyCode) as? Int
+        let modifiersValue = defaults.object(forKey: AppPreferenceKey.rewriteHotkeyModifiers) as? Int
+
+        let keyCode = UInt16(keyCodeValue ?? Int(defaultRewriteKeyCode))
+        let modifiersRaw = modifiersValue ?? Int(defaultRewriteModifiers.rawValue)
+        let modifiers = NSEvent.ModifierFlags(rawValue: UInt(modifiersRaw)).intersection(.hotkeyRelevant)
+
+        return Hotkey(keyCode: keyCode, modifiers: modifiers)
+    }
+
+    static func saveRewrite(keyCode: UInt16, modifiers: NSEvent.ModifierFlags) {
+        UserDefaults.standard.set(Int(keyCode), forKey: AppPreferenceKey.rewriteHotkeyKeyCode)
+        UserDefaults.standard.set(Int(modifiers.rawValue), forKey: AppPreferenceKey.rewriteHotkeyModifiers)
     }
 
     static func loadTriggerMode() -> TriggerMode {

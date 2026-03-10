@@ -5,6 +5,7 @@ struct RemoteLLMRuntimeClient {
     private enum CompletionIntent {
         case enhancement
         case translation
+        case rewrite
     }
 
     private struct GenerationTuning {
@@ -57,6 +58,33 @@ struct RemoteLLMRuntimeClient {
         )
         let trimmed = output.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? text : trimmed
+    }
+
+    func rewrite(
+        sourceText: String,
+        dictatedPrompt: String,
+        systemPrompt: String,
+        provider: RemoteLLMProvider,
+        configuration: RemoteProviderConfiguration
+    ) async throws -> String {
+        let prompt = """
+        Produce the final text to insert according to the instructions.
+        Spoken instruction:
+        \(dictatedPrompt)
+
+        Selected source text:
+        \(sourceText)
+        """
+        let output = try await complete(
+            systemPrompt: systemPrompt,
+            userPrompt: prompt,
+            inputTextLength: sourceText.count + dictatedPrompt.count,
+            intent: .rewrite,
+            provider: provider,
+            configuration: configuration
+        )
+        let trimmed = output.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? sourceText : trimmed
     }
 
     private func complete(
@@ -167,7 +195,7 @@ struct RemoteLLMRuntimeClient {
             let proxySettings = VoxtNetworkSession.currentProxySettings
             let proxyRoute = resolvedProxyRoute(for: url, settings: proxySettings)
             let networkMode = VoxtNetworkSession.modeDescription
-            VoxtLog.info(
+            VoxtLog.llm(
                 "Remote LLM request started. provider=\(provider.rawValue), endpoint=\(endpointValue), model=\(model), timeoutSec=\(Int(request.timeoutInterval)), inputChars=\(inputTextLength), systemChars=\(systemPrompt.count), userChars=\(userPrompt.count), maxTokens=\(tuning.maxTokens), temp=\(tuning.temperature), topP=\(tuning.topP), networkMode=\(networkMode), proxy=\(proxyRoute)"
             )
             do {
@@ -191,7 +219,7 @@ struct RemoteLLMRuntimeClient {
                 let totalElapsedMs = Int(Date().timeIntervalSince(requestStartedAt) * 1000)
                 let attempt = index + 1
                 if let content = extractPrimaryText(from: object), !content.isEmpty {
-                    VoxtLog.info(
+                    VoxtLog.llm(
                         "Remote LLM response received. provider=\(provider.rawValue), endpoint=\(endpointValue), status=\(http.statusCode), attempt=\(attempt)/\(endpoints.count), bytes=\(data.count), networkMs=\(responseElapsedMs), decodeMs=\(decodeElapsedMs), totalMs=\(totalElapsedMs)"
                     )
                     return content

@@ -7,15 +7,19 @@ struct ModelSettingsView: View {
     @AppStorage(AppPreferenceKey.enhancementMode) private var enhancementModeRaw = EnhancementMode.off.rawValue
     @AppStorage(AppPreferenceKey.enhancementSystemPrompt) private var systemPrompt = AppPreferenceKey.defaultEnhancementPrompt
     @AppStorage(AppPreferenceKey.translationSystemPrompt) private var translationPrompt = AppPreferenceKey.defaultTranslationPrompt
+    @AppStorage(AppPreferenceKey.rewriteSystemPrompt) private var rewritePrompt = AppPreferenceKey.defaultRewritePrompt
     @AppStorage(AppPreferenceKey.mlxModelRepo) private var modelRepo = MLXModelManager.defaultModelRepo
     @AppStorage(AppPreferenceKey.customLLMModelRepo) private var customLLMRepo = CustomLLMModelManager.defaultModelRepo
     @AppStorage(AppPreferenceKey.translationCustomLLMModelRepo) private var translationCustomLLMRepo = CustomLLMModelManager.defaultModelRepo
+    @AppStorage(AppPreferenceKey.rewriteCustomLLMModelRepo) private var rewriteCustomLLMRepo = CustomLLMModelManager.defaultModelRepo
     @AppStorage(AppPreferenceKey.translationModelProvider) private var translationModelProviderRaw = TranslationModelProvider.customLLM.rawValue
+    @AppStorage(AppPreferenceKey.rewriteModelProvider) private var rewriteModelProviderRaw = RewriteModelProvider.customLLM.rawValue
     @AppStorage(AppPreferenceKey.remoteASRSelectedProvider) private var remoteASRSelectedProviderRaw = RemoteASRProvider.openAIWhisper.rawValue
     @AppStorage(AppPreferenceKey.remoteASRProviderConfigurations) private var remoteASRProviderConfigurationsRaw = ""
     @AppStorage(AppPreferenceKey.remoteLLMSelectedProvider) private var remoteLLMSelectedProviderRaw = RemoteLLMProvider.openAI.rawValue
     @AppStorage(AppPreferenceKey.remoteLLMProviderConfigurations) private var remoteLLMProviderConfigurationsRaw = ""
     @AppStorage(AppPreferenceKey.translationRemoteLLMProvider) private var translationRemoteLLMProviderRaw = ""
+    @AppStorage(AppPreferenceKey.rewriteRemoteLLMProvider) private var rewriteRemoteLLMProviderRaw = ""
     @AppStorage(AppPreferenceKey.useHfMirror) private var useHfMirror = false
     @AppStorage(AppPreferenceKey.interfaceLanguage) private var interfaceLanguageRaw = AppInterfaceLanguage.system.rawValue
 
@@ -44,6 +48,10 @@ struct ModelSettingsView: View {
 
     private var selectedTranslationModelProvider: TranslationModelProvider {
         TranslationModelProvider(rawValue: translationModelProviderRaw) ?? .customLLM
+    }
+
+    private var selectedRewriteModelProvider: RewriteModelProvider {
+        RewriteModelProvider(rawValue: rewriteModelProviderRaw) ?? .customLLM
     }
 
     private var remoteASRConfigurations: [String: RemoteProviderConfiguration] {
@@ -183,6 +191,65 @@ struct ModelSettingsView: View {
                 .padding(8)
             }
 
+            GroupBox {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Content Rewrite")
+                        .font(.headline)
+
+                    Picker("Content Rewrite Provider", selection: $rewriteModelProviderRaw) {
+                        ForEach(RewriteModelProvider.allCases) { provider in
+                            Text(provider.titleKey).tag(provider.rawValue)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                    .labelsHidden()
+                    .frame(maxWidth: 260, alignment: .leading)
+
+                    HStack(alignment: .center, spacing: 12) {
+                        Text(rewriteModelLabelText)
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        if rewriteModelOptions.isEmpty {
+                            Text("Not available")
+                                .foregroundStyle(.tertiary)
+                        } else {
+                            Picker("Content Rewrite Model", selection: rewriteModelSelectionBinding) {
+                                ForEach(rewriteModelOptions) { option in
+                                    Text(option.title).tag(option.id)
+                                }
+                            }
+                            .pickerStyle(.menu)
+                            .labelsHidden()
+                            .frame(maxWidth: 280, alignment: .trailing)
+                        }
+                    }
+
+                    if rewriteModelOptions.isEmpty {
+                        Text(rewriteModelEmptyStateText)
+                            .font(.caption)
+                            .foregroundStyle(.orange)
+                    }
+
+                    Text("Content Rewrite Prompt")
+                        .font(.subheadline.weight(.medium))
+                    PromptEditorView(text: $rewritePrompt)
+
+                    HStack {
+                        Text("Supported variables: {{DICTATED_PROMPT}}, {{SOURCE_TEXT}}")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        Button("Reset to Default") {
+                            rewritePrompt = AppPreferenceKey.defaultRewritePrompt
+                        }
+                        .controlSize(.small)
+                        .disabled(rewritePrompt == AppPreferenceKey.defaultRewritePrompt)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(8)
+            }
+
             TranscriptionTestSectionView()
         }
         .onAppear {
@@ -208,8 +275,20 @@ struct ModelSettingsView: View {
             if translationPrompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 translationPrompt = AppPreferenceKey.defaultTranslationPrompt
             }
+            if rewritePrompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                rewritePrompt = AppPreferenceKey.defaultRewritePrompt
+            }
             if !TranslationModelProvider.allCases.contains(where: { $0.rawValue == translationModelProviderRaw }) {
                 translationModelProviderRaw = TranslationModelProvider.customLLM.rawValue
+            }
+            if !RewriteModelProvider.allCases.contains(where: { $0.rawValue == rewriteModelProviderRaw }) {
+                rewriteModelProviderRaw = RewriteModelProvider.customLLM.rawValue
+            }
+            if rewriteCustomLLMRepo.isEmpty {
+                rewriteCustomLLMRepo = customLLMRepo
+            }
+            if !CustomLLMModelManager.isSupportedModelRepo(rewriteCustomLLMRepo) {
+                rewriteCustomLLMRepo = customLLMRepo
             }
             customLLMManager.updateModel(repo: customLLMRepo)
             customLLMManager.prefetchAllModelSizes()
@@ -220,6 +299,7 @@ struct ModelSettingsView: View {
                 remoteLLMSelectedProviderRaw = RemoteLLMProvider.openAI.rawValue
             }
             ensureTranslationModelSelectionConsistency()
+            ensureRewriteModelSelectionConsistency()
             updateMirrorSetting()
             refreshModelInstallStateIfNeeded()
         }
@@ -234,12 +314,17 @@ struct ModelSettingsView: View {
         .onChange(of: customLLMRepo) { _, newValue in
             customLLMManager.updateModel(repo: newValue)
             ensureTranslationModelSelectionConsistency()
+            ensureRewriteModelSelectionConsistency()
         }
         .onChange(of: translationModelProviderRaw) { _, _ in
             ensureTranslationModelSelectionConsistency()
         }
+        .onChange(of: rewriteModelProviderRaw) { _, _ in
+            ensureRewriteModelSelectionConsistency()
+        }
         .onChange(of: remoteLLMProviderConfigurationsRaw) { _, _ in
             ensureTranslationModelSelectionConsistency()
+            ensureRewriteModelSelectionConsistency()
         }
         .onChange(of: useHfMirror) { _, _ in
             updateMirrorSetting()
@@ -247,6 +332,7 @@ struct ModelSettingsView: View {
         .onReceive(modelStateRefreshTimer) { _ in
             refreshModelInstallStateIfNeeded()
             ensureTranslationModelSelectionConsistency()
+            ensureRewriteModelSelectionConsistency()
         }
         .sheet(item: $editingASRProvider) { provider in
             RemoteProviderConfigurationSheet(
@@ -568,6 +654,15 @@ struct ModelSettingsView: View {
         }
     }
 
+    private var rewriteModelOptions: [TranslationModelOption] {
+        switch selectedRewriteModelProvider {
+        case .remoteLLM:
+            return configuredRemoteLLMOptions
+        case .customLLM:
+            return installedCustomLLMOptions
+        }
+    }
+
     private var translationModelSelectionBinding: Binding<String> {
         Binding(
             get: { resolvedTranslationSelection },
@@ -594,6 +689,32 @@ struct ModelSettingsView: View {
         return options[0].id
     }
 
+    private var rewriteModelSelectionBinding: Binding<String> {
+        Binding(
+            get: { resolvedRewriteSelection },
+            set: { newValue in
+                switch selectedRewriteModelProvider {
+                case .remoteLLM:
+                    rewriteRemoteLLMProviderRaw = newValue
+                case .customLLM:
+                    rewriteCustomLLMRepo = newValue
+                }
+            }
+        )
+    }
+
+    private var resolvedRewriteSelection: String {
+        let options = rewriteModelOptions
+        guard !options.isEmpty else {
+            return currentRewriteSelectionRaw
+        }
+
+        if options.contains(where: { $0.id == currentRewriteSelectionRaw }) {
+            return currentRewriteSelectionRaw
+        }
+        return options[0].id
+    }
+
     private var currentTranslationSelectionRaw: String {
         switch selectedTranslationModelProvider {
         case .remoteLLM:
@@ -603,12 +724,31 @@ struct ModelSettingsView: View {
         }
     }
 
+    private var currentRewriteSelectionRaw: String {
+        switch selectedRewriteModelProvider {
+        case .remoteLLM:
+            return rewriteRemoteLLMProviderRaw
+        case .customLLM:
+            return rewriteCustomLLMRepo
+        }
+    }
+
     private var translationModelLabelText: String {
         selectedTranslationModelProvider == .remoteLLM ? "Remote LLM Model" : "Custom LLM Model"
     }
 
     private var translationModelEmptyStateText: String {
         selectedTranslationModelProvider == .remoteLLM
+            ? "No configured remote LLM model yet. Configure a provider above."
+            : "No installed custom LLM model yet. Install one in the table above."
+    }
+
+    private var rewriteModelLabelText: String {
+        selectedRewriteModelProvider == .remoteLLM ? "Remote LLM Model" : "Custom LLM Model"
+    }
+
+    private var rewriteModelEmptyStateText: String {
+        selectedRewriteModelProvider == .remoteLLM
             ? "No configured remote LLM model yet. Configure a provider above."
             : "No installed custom LLM model yet. Install one in the table above."
     }
@@ -869,6 +1009,29 @@ struct ModelSettingsView: View {
                 }
             } else {
                 translationCustomLLMRepo = customLLMRepo
+            }
+        }
+    }
+
+    private func ensureRewriteModelSelectionConsistency() {
+        switch selectedRewriteModelProvider {
+        case .remoteLLM:
+            let options = configuredRemoteLLMOptions
+            guard let first = options.first else {
+                rewriteRemoteLLMProviderRaw = ""
+                return
+            }
+            if !options.contains(where: { $0.id == rewriteRemoteLLMProviderRaw }) {
+                rewriteRemoteLLMProviderRaw = first.id
+            }
+        case .customLLM:
+            let options = installedCustomLLMOptions
+            if let first = options.first {
+                if !options.contains(where: { $0.id == rewriteCustomLLMRepo }) {
+                    rewriteCustomLLMRepo = first.id
+                }
+            } else {
+                rewriteCustomLLMRepo = customLLMRepo
             }
         }
     }

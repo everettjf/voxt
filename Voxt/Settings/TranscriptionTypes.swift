@@ -83,6 +83,27 @@ enum TranslationModelProvider: String, CaseIterable, Identifiable {
     }
 }
 
+enum RewriteModelProvider: String, CaseIterable, Identifiable {
+    case customLLM
+    case remoteLLM
+
+    var id: String { rawValue }
+
+    var titleKey: LocalizedStringKey {
+        switch self {
+        case .customLLM: return "Custom LLM"
+        case .remoteLLM: return "Remote LLM"
+        }
+    }
+
+    var title: String {
+        switch self {
+        case .customLLM: return AppLocalization.localizedString("Custom LLM")
+        case .remoteLLM: return AppLocalization.localizedString("Remote LLM")
+        }
+    }
+}
+
 enum OverlayPosition: String, CaseIterable, Identifiable {
     case bottom
     case top

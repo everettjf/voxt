@@ -18,6 +18,16 @@ enum VoxtLog {
         log(message(), level: .info, verbose: verbose)
     }
 
+    static func hotkey(_ message: @autoclosure () -> String) {
+        guard UserDefaults.standard.bool(forKey: AppPreferenceKey.hotkeyDebugLoggingEnabled) else { return }
+        log(message(), level: .info)
+    }
+
+    static func llm(_ message: @autoclosure () -> String) {
+        guard UserDefaults.standard.bool(forKey: AppPreferenceKey.llmDebugLoggingEnabled) else { return }
+        log(message(), level: .info)
+    }
+
     static func warning(_ message: @autoclosure () -> String) {
         log(message(), level: .warning)
     }

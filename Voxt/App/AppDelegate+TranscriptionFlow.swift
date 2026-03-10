@@ -106,9 +106,9 @@ extension AppDelegate {
             return try await customLLMManager.enhance(text, systemPrompt: prompt)
         case .remoteLLM:
             let context = resolvedRemoteLLMContext(forTranslation: false)
-            VoxtLog.info(
-                "Remote LLM enhancement request. provider=\(context.provider.rawValue), model=\(context.configuration.model)"
-            )
+                VoxtLog.llm(
+                    "Remote LLM enhancement request. provider=\(context.provider.rawValue), model=\(context.configuration.model)"
+                )
             return try await RemoteLLMRuntimeClient().enhance(
                 text: text,
                 systemPrompt: prompt,

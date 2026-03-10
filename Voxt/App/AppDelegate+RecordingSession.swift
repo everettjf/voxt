@@ -26,7 +26,7 @@ extension AppDelegate {
         enhancementContextSnapshot = nil
 
         VoxtLog.info(
-            "Recording started. output=\(outputMode == .translation ? "translation" : "transcription"), engine=\(transcriptionEngine.rawValue)"
+            "Recording started. output=\(sessionOutputLabel(for: outputMode)), engine=\(transcriptionEngine.rawValue)"
         )
 
         applyPreferredInputDevice()
@@ -175,6 +175,7 @@ extension AppDelegate {
         }
 
         VoxtLog.info("Transcription result received. characters=\(text.count), output=\(sessionOutputMode == .translation ? "translation" : "transcription")")
+        VoxtLog.info("Transcription result output mode resolved as \(sessionOutputLabel(for: sessionOutputMode)).", verbose: true)
         VoxtLog.info("Enhancement mode=\(enhancementMode.rawValue), appEnhancementEnabled=\(appEnhancementEnabled)")
 
         if sessionOutputMode == .translation {
@@ -182,7 +183,23 @@ extension AppDelegate {
             return
         }
 
+        if sessionOutputMode == .rewrite {
+            processRewriteTranscription(text, sessionID: sessionID)
+            return
+        }
+
         processStandardTranscription(text, sessionID: sessionID)
+    }
+
+    private func sessionOutputLabel(for outputMode: SessionOutputMode) -> String {
+        switch outputMode {
+        case .transcription:
+            return "transcription"
+        case .translation:
+            return "translation"
+        case .rewrite:
+            return "rewrite"
+        }
     }
 
     func startPauseLLMIfNeeded() {

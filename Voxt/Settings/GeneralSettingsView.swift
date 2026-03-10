@@ -16,6 +16,8 @@ struct GeneralSettingsView: View {
     @AppStorage(AppPreferenceKey.launchAtLogin) private var launchAtLogin = false
     @AppStorage(AppPreferenceKey.showInDock) private var showInDock = false
     @AppStorage(AppPreferenceKey.autoCheckForUpdates) private var autoCheckForUpdates = true
+    @AppStorage(AppPreferenceKey.hotkeyDebugLoggingEnabled) private var hotkeyDebugLoggingEnabled = false
+    @AppStorage(AppPreferenceKey.llmDebugLoggingEnabled) private var llmDebugLoggingEnabled = false
     @AppStorage(AppPreferenceKey.networkProxyMode) private var networkProxyModeRaw = VoxtNetworkSession.ProxyMode.system.rawValue
     @AppStorage(AppPreferenceKey.customProxyScheme) private var customProxySchemeRaw = VoxtNetworkSession.ProxyScheme.http.rawValue
     @AppStorage(AppPreferenceKey.customProxyHost) private var customProxyHost = ""
@@ -257,6 +259,25 @@ struct GeneralSettingsView: View {
                         }
                     }
                     Text("Show the App Enhancement menu and enable app-based enhancement configuration.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(8)
+            }
+
+            GroupBox {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Logging")
+                        .font(.headline)
+
+                    Toggle("Enable hotkey debug logs", isOn: $hotkeyDebugLoggingEnabled)
+                    Text("When enabled, Voxt writes detailed hotkey detection and routing logs. Disabled by default.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+
+                    Toggle("Enable LLM debug logs", isOn: $llmDebugLoggingEnabled)
+                    Text("When enabled, Voxt writes detailed local and remote LLM request logs. Disabled by default.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
