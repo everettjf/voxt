@@ -4,6 +4,7 @@ import ApplicationServices
 import CoreAudio
 import AVFoundation
 import Speech
+import Carbon
 
 @main
 struct VoxtApp: App {
@@ -110,6 +111,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var defaultsObserver: NSObjectProtocol?
     private var interfaceLanguageObserver: NSObjectProtocol?
     private var updateAvailabilityObserver: NSObjectProtocol?
+    private var globalEscapeKeyMonitor: Any?
+    private var localEscapeKeyMonitor: Any?
 
     var isSessionActive = false
     var pendingSessionFinishTask: Task<Void, Never>?
@@ -130,6 +133,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     var sessionOutputMode: SessionOutputMode = .transcription
     var isSelectedTextTranslationFlow = false
     var didCommitSessionOutput = false
+    var activeRecordingSessionID = UUID()
+    var isSessionCancellationRequested = false
     var pendingTranscriptionStartTask: Task<Void, Never>?
     var enhancementContextSnapshot: EnhancementContextSnapshot?
     var lastEnhancementPromptContext: EnhancementPromptContext?
@@ -262,6 +267,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         setupHotkey()
+        setupEscapeKeyMonitoring()
 
         appUpdateManager.automaticallyChecksForUpdates = autoCheckForUpdates
         VoxtLog.info("Voxt launch completed. engine=\(transcriptionEngine.rawValue), enhancement=\(enhancementMode.rawValue)")
@@ -276,6 +282,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
         if let updateAvailabilityObserver {
             NotificationCenter.default.removeObserver(updateAvailabilityObserver)
+        }
+        if let globalEscapeKeyMonitor {
+            NSEvent.removeMonitor(globalEscapeKeyMonitor)
+        }
+        if let localEscapeKeyMonitor {
+            NSEvent.removeMonitor(localEscapeKeyMonitor)
         }
     }
 
@@ -322,6 +334,27 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
         hotkeyManager.start()
         VoxtLog.info("Hotkey callbacks configured.")
+    }
+
+    private func setupEscapeKeyMonitoring() {
+        globalEscapeKeyMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard let self else { return }
+            Task { @MainActor [weak self] in
+                self?.handleEscapeKeyEvent(event)
+            }
+        }
+        localEscapeKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            self?.handleEscapeKeyEvent(event)
+            return event
+        }
+    }
+
+    private func handleEscapeKeyEvent(_ event: NSEvent) {
+        guard event.keyCode == UInt16(kVK_Escape) else { return }
+        guard HotkeyPreference.loadTriggerMode() == .tap else { return }
+        guard isSessionActive else { return }
+        guard !isSelectedTextTranslationFlow else { return }
+        cancelActiveRecordingSession()
     }
 
     private func shouldIgnoreTapStop() -> Bool {
@@ -502,6 +535,18 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
         pendingTranscriptionStartTask?.cancel()
         pendingTranscriptionStartTask = nil
+    }
+
+    func shouldHandleCallbacks(for sessionID: UUID) -> Bool {
+        guard sessionID == activeRecordingSessionID else {
+            VoxtLog.info("Ignoring stale session callback. sessionID=\(sessionID.uuidString)", verbose: true)
+            return false
+        }
+        guard !isSessionCancellationRequested else {
+            VoxtLog.info("Ignoring callback for cancelled session. sessionID=\(sessionID.uuidString)", verbose: true)
+            return false
+        }
+        return true
     }
 
 }

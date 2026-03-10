@@ -20,6 +20,8 @@ extension AppDelegate {
         transcriptionProcessingStartedAt = nil
         transcriptionResultReceivedAt = nil
         didCommitSessionOutput = false
+        isSessionCancellationRequested = false
+        activeRecordingSessionID = UUID()
         sessionOutputMode = outputMode
         enhancementContextSnapshot = nil
 
@@ -106,7 +108,46 @@ extension AppDelegate {
         }
     }
 
+    func cancelActiveRecordingSession() {
+        guard isSessionActive else { return }
+        VoxtLog.info("Recording cancelled by Escape key.")
+
+        let cancelledSessionID = activeRecordingSessionID
+        activeRecordingSessionID = UUID()
+        isSessionCancellationRequested = true
+        didCommitSessionOutput = true
+
+        pendingSessionFinishTask?.cancel()
+        pendingSessionFinishTask = nil
+        stopRecordingFallbackTask?.cancel()
+        stopRecordingFallbackTask = nil
+        silenceMonitorTask?.cancel()
+        silenceMonitorTask = nil
+        pauseLLMTask?.cancel()
+        pauseLLMTask = nil
+        recordingStoppedAt = Date()
+        overlayState.isCompleting = false
+        overlayState.statusMessage = ""
+        setEnhancingState(false)
+
+        if transcriptionEngine == .mlxAudio, isMLXReady {
+            mlxTranscriber?.stopRecording()
+        } else if transcriptionEngine == .remote {
+            remoteASRTranscriber.stopRecording()
+        } else {
+            speechTranscriber.stopRecording()
+        }
+
+        VoxtLog.info("Cancelled session invalidated. sessionID=\(cancelledSessionID.uuidString)", verbose: true)
+        executeSessionEndPipeline()
+    }
+
     func processTranscription(_ rawText: String) {
+        processTranscription(rawText, sessionID: activeRecordingSessionID)
+    }
+
+    func processTranscription(_ rawText: String, sessionID: UUID) {
+        guard shouldHandleCallbacks(for: sessionID) else { return }
         if didCommitSessionOutput {
             VoxtLog.info("Ignoring transcription callback because current session output has already been committed.")
             return
@@ -137,11 +178,11 @@ extension AppDelegate {
         VoxtLog.info("Enhancement mode=\(enhancementMode.rawValue), appEnhancementEnabled=\(appEnhancementEnabled)")
 
         if sessionOutputMode == .translation {
-            processTranslatedTranscription(text)
+            processTranslatedTranscription(text, sessionID: sessionID)
             return
         }
 
-        processStandardTranscription(text)
+        processStandardTranscription(text, sessionID: sessionID)
     }
 
     func startPauseLLMIfNeeded() {
@@ -229,10 +270,11 @@ extension AppDelegate {
     private func startMLXRecordingSession() {
         let mlx = mlxTranscriber ?? MLXTranscriber(modelManager: mlxModelManager)
         mlxTranscriber = mlx
+        let sessionID = activeRecordingSessionID
         overlayState.statusMessage = ""
         mlx.setPreferredInputDevice(selectedInputDeviceID)
         mlx.onTranscriptionFinished = { [weak self] text in
-            self?.processTranscription(text)
+            self?.processTranscription(text, sessionID: sessionID)
         }
         overlayState.bind(to: mlx)
         overlayWindow.show(
@@ -254,8 +296,9 @@ extension AppDelegate {
             }
 
             self.overlayState.statusMessage = ""
+            let sessionID = self.activeRecordingSessionID
             self.speechTranscriber.onTranscriptionFinished = { [weak self] text in
-                self?.processTranscription(text)
+                self?.processTranscription(text, sessionID: sessionID)
             }
             self.overlayState.bind(to: self.speechTranscriber)
             self.overlayWindow.show(
@@ -278,8 +321,9 @@ extension AppDelegate {
             }
 
             self.overlayState.statusMessage = ""
+            let sessionID = self.activeRecordingSessionID
             self.remoteASRTranscriber.onTranscriptionFinished = { [weak self] text in
-                self?.processTranscription(text)
+                self?.processTranscription(text, sessionID: sessionID)
             }
             self.overlayState.bind(to: self.remoteASRTranscriber)
             self.overlayWindow.show(

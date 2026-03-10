@@ -15,7 +15,8 @@ extension AppDelegate {
 
     // MARK: - Standard Transcription Flow
 
-    func processStandardTranscription(_ text: String) {
+    func processStandardTranscription(_ text: String, sessionID: UUID) {
+        guard shouldHandleCallbacks(for: sessionID) else { return }
         switch enhancementMode {
         case .off:
             setEnhancingState(false)
@@ -36,14 +37,14 @@ extension AppDelegate {
                 finishSession()
                 return
             }
-            runStandardTranscriptionPipelineAsync(text)
+            runStandardTranscriptionPipelineAsync(text, sessionID: sessionID)
 
         case .appleIntelligence, .remoteLLM:
-            runStandardTranscriptionPipelineAsync(text)
+            runStandardTranscriptionPipelineAsync(text, sessionID: sessionID)
         }
     }
 
-    private func runStandardTranscriptionPipelineAsync(_ text: String) {
+    private func runStandardTranscriptionPipelineAsync(_ text: String, sessionID: UUID) {
         setEnhancingState(true)
         Task {
             defer {
@@ -59,12 +60,14 @@ extension AppDelegate {
             }
             do {
                 let enhanced = try await self.runStandardTranscriptionPipeline(text: text)
+                guard self.shouldHandleCallbacks(for: sessionID) else { return }
                 let llmDuration = Date().timeIntervalSince(llmStartedAt)
                 VoxtLog.info("Enhancement completed. mode=\(self.enhancementMode.rawValue), inputChars=\(text.count), outputChars=\(enhanced.count), llmDurationSec=\(String(format: "%.3f", llmDuration))")
                 self.overlayState.transcribedText = enhanced
                 self.commitTranscription(enhanced, llmDurationSeconds: llmDuration)
                 self.finishSession(after: 1.5)
             } catch {
+                guard self.shouldHandleCallbacks(for: sessionID) else { return }
                 VoxtLog.warning("Standard transcription pipeline enhancement failed, using raw text: \(error)")
                 self.overlayState.transcribedText = text
                 self.commitTranscription(text, llmDurationSeconds: nil)

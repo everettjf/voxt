@@ -45,7 +45,8 @@ extension AppDelegate {
     // MARK: - Translation Flow
     // Keeps translation/enhancement orchestration isolated from recording lifecycle.
 
-    func processTranslatedTranscription(_ text: String) {
+    func processTranslatedTranscription(_ text: String, sessionID: UUID) {
+        guard shouldHandleCallbacks(for: sessionID) else { return }
         VoxtLog.info(
             "Translation flow started. inputChars=\(text.count), targetLanguage=\(translationTargetLanguage.instructionName), enhancementMode=\(enhancementMode.rawValue)"
         )
@@ -53,7 +54,9 @@ extension AppDelegate {
         Task {
             defer {
                 self.setEnhancingState(false)
-                self.finishSession()
+                if self.shouldHandleCallbacks(for: sessionID) {
+                    self.finishSession()
+                }
             }
 
             let llmStartedAt = Date()
@@ -65,6 +68,7 @@ extension AppDelegate {
                     includeEnhancement: true,
                     allowStrictRetry: false
                 )
+                guard self.shouldHandleCallbacks(for: sessionID) else { return }
                 let llmDuration = Date().timeIntervalSince(llmStartedAt)
                 if self.looksUntranslated(source: text, result: translated) {
                     VoxtLog.warning("Translation output may be untranslated. sourceChars=\(text.count), outputChars=\(translated.count)")
@@ -72,6 +76,7 @@ extension AppDelegate {
                 VoxtLog.info("Translation flow succeeded. outputChars=\(translated.count), llmDurationSec=\(String(format: "%.3f", llmDuration))")
                 self.commitTranscription(translated, llmDurationSeconds: llmDuration)
             } catch {
+                guard self.shouldHandleCallbacks(for: sessionID) else { return }
                 VoxtLog.warning("Translation flow failed, using raw text: \(error)")
                 self.commitTranscription(text, llmDurationSeconds: nil)
             }
@@ -104,6 +109,8 @@ extension AppDelegate {
         isSessionActive = true
         isSelectedTextTranslationFlow = true
         didCommitSessionOutput = false
+        isSessionCancellationRequested = false
+        activeRecordingSessionID = UUID()
         sessionOutputMode = .translation
         recordingStartedAt = startedAt
         recordingStoppedAt = startedAt
