@@ -914,8 +914,8 @@ jobs:
           fi
 
           git remote set-url origin "https://x-access-token:${HOMEBREW_TAP_TOKEN}@github.com/${HOMEBREW_TAP_REPO}.git"
-          git -c user.name "github-actions[bot]" -c user.email "41898282+github-actions[bot]@users.noreply.github.com" add Casks/voxt.rb
-          git -c user.name "github-actions[bot]" -c user.email "41898282+github-actions[bot]@users.noreply.github.com" commit -m "chore: sync voxt cask to ${VERSION}"
+          git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" add Casks/voxt.rb
+          git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" commit -m "chore: sync voxt cask to ${VERSION}"
           git push
 
       - name: Summary
