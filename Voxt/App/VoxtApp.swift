@@ -108,6 +108,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     let historyStore = TranscriptionHistoryStore()
     let appUpdateManager = AppUpdateManager()
     let interactionSoundPlayer = InteractionSoundPlayer()
+    let systemAudioMuteController = SystemAudioMuteController()
 
     let hotkeyManager = HotkeyManager()
     let overlayWindow = RecordingOverlayWindow()
@@ -129,6 +130,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     var pauseLLMTask: Task<Void, Never>?
     var overlayReminderTask: Task<Void, Never>?
     var overlayStatusClearTask: Task<Void, Never>?
+    var pendingSystemAudioMuteTask: Task<Void, Never>?
     var lastSignificantAudioAt = Date()
     var didTriggerPauseTranscription = false
     var didTriggerPauseLLM = false
@@ -162,6 +164,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         UserDefaults.standard.register(defaults: [
             AppPreferenceKey.interactionSoundsEnabled: true,
             AppPreferenceKey.interactionSoundPreset: InteractionSoundPreset.soft.rawValue,
+            AppPreferenceKey.muteSystemAudioWhileRecording: false,
             AppPreferenceKey.overlayPosition: OverlayPosition.bottom.rawValue,
             AppPreferenceKey.interfaceLanguage: AppInterfaceLanguage.system.rawValue,
             AppPreferenceKey.translationTargetLanguage: TranslationTargetLanguage.english.rawValue,
@@ -289,6 +292,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         appUpdateManager.automaticallyChecksForUpdates = autoCheckForUpdates
         VoxtLog.info("Voxt launch completed. engine=\(transcriptionEngine.rawValue), enhancement=\(enhancementMode.rawValue)")
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        systemAudioMuteController.restoreSystemAudioIfNeeded()
     }
 
     deinit {

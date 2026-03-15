@@ -12,6 +12,8 @@
 "Audio" = "オーディオ";
 "Microphone" = "マイク";
 "Interaction Sounds" = "操作音";
+"Mute system audio while recording" = "録音中はシステム音声を消音";
+"After the start sound plays, Voxt mutes your Mac's current output volume during recording and restores it before the end sound." = "開始音の再生後、Voxt は録音中に Mac の現在の出力音量を消音し、終了音の前に元へ戻します。";
 "Sound Preset" = "サウンドプリセット";
 "Preview" = "試聴";
 "Try Sound" = "試聴";
@@ -76,6 +78,7 @@
 "Apache License 2.0" = "Apache 2.0 ライセンス";
 "Project" = "プロジェクト";
 "Author" = "作者";
+"No microphone available" = "利用可能なマイクがありません";
 "Thanks" = "謝辞";
 "Logs" = "ログ";
 "Export Latest Logs (2000)" = "最新ログをエクスポート（2000件）";
@@ -441,4 +444,10 @@
 "Needs Setup" = "要設定";
 "Model needs to be installed." = "モデルをインストールする必要があります。";
 "Configuration required." = "設定の補完が必要です。";
+"Mute other media audio while recording" = "録音中は他アプリのメディア音声をミュートする";
+"When enabled, Voxt requests system audio recording permission so it can mute other apps' media audio during recording and restore it after transcription completes." = "有効にすると、Voxt は録音中に他アプリのメディア音声をミュートし、文字起こし完了後に復元するためのシステム音声録音権限を要求します。";
+"System audio recording permission granted." = "システム音声録音の権限が許可されました。";
+"System audio recording permission is required for this feature. You can grant it in Settings > Permissions." = "この機能にはシステム音声録音の権限が必要です。Settings > Permissions から許可できます。";
+"System Audio Recording Permission" = "システム音声録音の権限";
+"Required only when muting other apps' media audio during recording is enabled." = "録音中に他アプリのメディア音声をミュートする機能を有効にした場合にのみ必要です。";
 "Feedback" = "フィードバック";

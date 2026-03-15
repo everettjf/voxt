@@ -12,6 +12,8 @@
 "Audio" = "音频";
 "Microphone" = "麦克风";
 "Interaction Sounds" = "交互提示音";
+"Mute system audio while recording" = "录制时静音系统音频";
+"After the start sound plays, Voxt mutes your Mac's current output volume during recording and restores it before the end sound." = "开始提示音播放后，Voxt 会在录制期间将 Mac 当前输出音量静音，并在结束提示音前恢复。";
 "Sound Preset" = "提示音预设";
 "Preview" = "预览";
 "Try Sound" = "试听";
@@ -77,6 +79,7 @@
 "Apache License 2.0" = "Apache 2.0 许可证";
 "Project" = "项目";
 "Feedback" = "问题反馈";
+"No microphone available" = "没有可用的麦克风";
 "Author" = "作者";
 "Thanks" = "感谢";
 "Logs" = "日志";
@@ -442,3 +445,9 @@
 "Needs Setup" = "需补全配置";
 "Model needs to be installed." = "模型需要先安装。";
 "Configuration required." = "需要补全配置。";
+"Mute other media audio while recording" = "录制时静音其他媒体音频";
+"When enabled, Voxt requests system audio recording permission so it can mute other apps' media audio during recording and restore it after transcription completes." = "开启后，Voxt 会请求系统音频录制权限，以便在录制期间静音其他应用的媒体音频，并在转录完成后恢复。";
+"System audio recording permission granted." = "系统音频录制权限已授予。";
+"System audio recording permission is required for this feature. You can grant it in Settings > Permissions." = "此功能需要系统音频录制权限。你可以在 设置 > 权限 中授予。";
+"System Audio Recording Permission" = "系统音频录制权限";
+"Required only when muting other apps' media audio during recording is enabled." = "仅当开启“录制时静音其他应用媒体音频”时才需要。";

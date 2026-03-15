@@ -28,6 +28,7 @@ extension AppDelegate {
         )
 
         applyPreferredInputDevice()
+        overlayState.reset()
         overlayState.statusMessage = ""
 
         if transcriptionEngine == .mlxAudio {
@@ -50,19 +51,34 @@ extension AppDelegate {
         }
 
         isSessionActive = true
+        pendingSystemAudioMuteTask?.cancel()
+        pendingSystemAudioMuteTask = nil
+        overlayWindow.show(
+            state: overlayState,
+            position: overlayPosition
+        )
+
+        let startCapture = { [weak self] in
+            guard let self else { return }
+            if self.transcriptionEngine == .mlxAudio, self.isMLXReady {
+                self.startMLXRecordingSession()
+            } else if self.transcriptionEngine == .remote {
+                self.startRemoteRecordingSession()
+            } else {
+                self.startSpeechRecordingSession()
+            }
+
+            self.startSilenceMonitoringIfNeeded()
+        }
+
+        if muteSystemAudioWhileRecording {
+            _ = systemAudioMuteController.muteSystemAudioIfNeeded()
+        }
         if interactionSoundsEnabled {
             interactionSoundPlayer.playStart()
         }
 
-        if transcriptionEngine == .mlxAudio, isMLXReady {
-            startMLXRecordingSession()
-        } else if transcriptionEngine == .remote {
-            startRemoteRecordingSession()
-        } else {
-            startSpeechRecordingSession()
-        }
-
-        startSilenceMonitoringIfNeeded()
+        startCapture()
     }
 
     func endRecording() {
@@ -74,6 +90,8 @@ extension AppDelegate {
         VoxtLog.info("Recording stop requested.")
 
         cancelActiveRecordingTasks()
+        pendingSystemAudioMuteTask?.cancel()
+        pendingSystemAudioMuteTask = nil
         stopRecordingFallbackTask?.cancel()
         stopRecordingFallbackTask = nil
         recordingStoppedAt = Date()
@@ -111,6 +129,8 @@ extension AppDelegate {
         didCommitSessionOutput = true
 
         cancelSessionControlTasks()
+        pendingSystemAudioMuteTask?.cancel()
+        pendingSystemAudioMuteTask = nil
         recordingStoppedAt = Date()
         overlayState.isCompleting = false
         overlayState.statusMessage = ""
@@ -340,6 +360,7 @@ extension AppDelegate {
 
     private func resetSessionAfterFailedStart() {
         cancelSessionControlTasks()
+        systemAudioMuteController.restoreSystemAudioIfNeeded()
         isSessionActive = false
         isSessionCancellationRequested = false
         didCommitSessionOutput = false

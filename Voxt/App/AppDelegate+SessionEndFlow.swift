@@ -14,11 +14,20 @@ extension AppDelegate {
         }
     }
 
+    private struct RestoreSystemAudioStage: SessionEndStage {
+        var name: String { "restoreSystemAudio" }
+
+        func run(delegate: AppDelegate) {
+            delegate.systemAudioMuteController.restoreSystemAudioIfNeeded()
+        }
+    }
+
     private struct PlayEndSoundStage: SessionEndStage {
         var name: String { "playEndSound" }
 
         func run(delegate: AppDelegate) {
-            if delegate.interactionSoundsEnabled {
+            guard delegate.interactionSoundsEnabled else { return }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
                 delegate.interactionSoundPlayer.playEnd()
             }
         }
@@ -33,6 +42,7 @@ extension AppDelegate {
             delegate.isSelectedTextTranslationFlow = false
             delegate.enhancementContextSnapshot = nil
             delegate.overlayState.isCompleting = false
+            delegate.overlayState.reset()
             delegate.pendingSessionFinishTask = nil
         }
     }
@@ -40,6 +50,7 @@ extension AppDelegate {
     func executeSessionEndPipeline() {
         let stages: [any SessionEndStage] = [
             HideOverlayStage(),
+            RestoreSystemAudioStage(),
             PlayEndSoundStage(),
             ResetSessionStateStage()
         ]

@@ -42,8 +42,10 @@ enum ConfigurationTransferManager {
         var selectedInputDeviceID: Int
         var interactionSoundsEnabled: Bool
         var interactionSoundPreset: String
+        var muteSystemAudioWhileRecording: Bool
         var overlayPosition: String
         var translationTargetLanguage: String
+        var userMainLanguageCodes: [String]
         var translateSelectedTextOnTranslationHotkey: Bool
         var autoCopyWhenNoFocusedInput: Bool
         var launchAtLogin: Bool
@@ -60,6 +62,116 @@ enum ConfigurationTransferManager {
         var customProxyPort: String
         var customProxyUsername: String
         var customProxyPassword: String
+
+        private enum CodingKeys: String, CodingKey {
+            case interfaceLanguage
+            case selectedInputDeviceID
+            case interactionSoundsEnabled
+            case interactionSoundPreset
+            case muteSystemAudioWhileRecording
+            case overlayPosition
+            case translationTargetLanguage
+            case userMainLanguageCodes
+            case translateSelectedTextOnTranslationHotkey
+            case autoCopyWhenNoFocusedInput
+            case launchAtLogin
+            case showInDock
+            case historyEnabled
+            case historyRetentionPeriod
+            case autoCheckForUpdates
+            case hotkeyDebugLoggingEnabled
+            case llmDebugLoggingEnabled
+            case useSystemProxy
+            case networkProxyMode
+            case customProxyScheme
+            case customProxyHost
+            case customProxyPort
+            case customProxyUsername
+            case customProxyPassword
+        }
+
+        init(
+            interfaceLanguage: String,
+            selectedInputDeviceID: Int,
+            interactionSoundsEnabled: Bool,
+            interactionSoundPreset: String,
+            muteSystemAudioWhileRecording: Bool,
+            overlayPosition: String,
+            translationTargetLanguage: String,
+            userMainLanguageCodes: [String],
+            translateSelectedTextOnTranslationHotkey: Bool,
+            autoCopyWhenNoFocusedInput: Bool,
+            launchAtLogin: Bool,
+            showInDock: Bool,
+            historyEnabled: Bool,
+            historyRetentionPeriod: String,
+            autoCheckForUpdates: Bool,
+            hotkeyDebugLoggingEnabled: Bool,
+            llmDebugLoggingEnabled: Bool,
+            useSystemProxy: Bool,
+            networkProxyMode: String,
+            customProxyScheme: String,
+            customProxyHost: String,
+            customProxyPort: String,
+            customProxyUsername: String,
+            customProxyPassword: String
+        ) {
+            self.interfaceLanguage = interfaceLanguage
+            self.selectedInputDeviceID = selectedInputDeviceID
+            self.interactionSoundsEnabled = interactionSoundsEnabled
+            self.interactionSoundPreset = interactionSoundPreset
+            self.muteSystemAudioWhileRecording = muteSystemAudioWhileRecording
+            self.overlayPosition = overlayPosition
+            self.translationTargetLanguage = translationTargetLanguage
+            self.userMainLanguageCodes = sanitizeUserMainLanguageCodes(userMainLanguageCodes)
+            self.translateSelectedTextOnTranslationHotkey = translateSelectedTextOnTranslationHotkey
+            self.autoCopyWhenNoFocusedInput = autoCopyWhenNoFocusedInput
+            self.launchAtLogin = launchAtLogin
+            self.showInDock = showInDock
+            self.historyEnabled = historyEnabled
+            self.historyRetentionPeriod = historyRetentionPeriod
+            self.autoCheckForUpdates = autoCheckForUpdates
+            self.hotkeyDebugLoggingEnabled = hotkeyDebugLoggingEnabled
+            self.llmDebugLoggingEnabled = llmDebugLoggingEnabled
+            self.useSystemProxy = useSystemProxy
+            self.networkProxyMode = networkProxyMode
+            self.customProxyScheme = customProxyScheme
+            self.customProxyHost = customProxyHost
+            self.customProxyPort = customProxyPort
+            self.customProxyUsername = customProxyUsername
+            self.customProxyPassword = customProxyPassword
+        }
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            interfaceLanguage = try container.decode(String.self, forKey: .interfaceLanguage)
+            selectedInputDeviceID = try container.decode(Int.self, forKey: .selectedInputDeviceID)
+            interactionSoundsEnabled = try container.decode(Bool.self, forKey: .interactionSoundsEnabled)
+            interactionSoundPreset = try container.decode(String.self, forKey: .interactionSoundPreset)
+            muteSystemAudioWhileRecording = try container.decodeIfPresent(Bool.self, forKey: .muteSystemAudioWhileRecording) ?? false
+            overlayPosition = try container.decode(String.self, forKey: .overlayPosition)
+            translationTargetLanguage = try container.decode(String.self, forKey: .translationTargetLanguage)
+            userMainLanguageCodes = sanitizeUserMainLanguageCodes(
+                try container.decodeIfPresent([String].self, forKey: .userMainLanguageCodes)
+                    ?? defaultUserMainLanguageCodes
+            )
+            translateSelectedTextOnTranslationHotkey = try container.decode(Bool.self, forKey: .translateSelectedTextOnTranslationHotkey)
+            autoCopyWhenNoFocusedInput = try container.decode(Bool.self, forKey: .autoCopyWhenNoFocusedInput)
+            launchAtLogin = try container.decode(Bool.self, forKey: .launchAtLogin)
+            showInDock = try container.decode(Bool.self, forKey: .showInDock)
+            historyEnabled = try container.decode(Bool.self, forKey: .historyEnabled)
+            historyRetentionPeriod = try container.decode(String.self, forKey: .historyRetentionPeriod)
+            autoCheckForUpdates = try container.decode(Bool.self, forKey: .autoCheckForUpdates)
+            hotkeyDebugLoggingEnabled = try container.decode(Bool.self, forKey: .hotkeyDebugLoggingEnabled)
+            llmDebugLoggingEnabled = try container.decode(Bool.self, forKey: .llmDebugLoggingEnabled)
+            useSystemProxy = try container.decode(Bool.self, forKey: .useSystemProxy)
+            networkProxyMode = try container.decode(String.self, forKey: .networkProxyMode)
+            customProxyScheme = try container.decode(String.self, forKey: .customProxyScheme)
+            customProxyHost = try container.decode(String.self, forKey: .customProxyHost)
+            customProxyPort = try container.decode(String.self, forKey: .customProxyPort)
+            customProxyUsername = try container.decode(String.self, forKey: .customProxyUsername)
+            customProxyPassword = try container.decode(String.self, forKey: .customProxyPassword)
+        }
     }
 
     struct ModelSettings: Codable {
@@ -274,8 +386,12 @@ enum ConfigurationTransferManager {
                 selectedInputDeviceID: defaults.integer(forKey: AppPreferenceKey.selectedInputDeviceID),
                 interactionSoundsEnabled: defaults.bool(forKey: AppPreferenceKey.interactionSoundsEnabled),
                 interactionSoundPreset: defaults.string(forKey: AppPreferenceKey.interactionSoundPreset) ?? "",
+                muteSystemAudioWhileRecording: defaults.bool(forKey: AppPreferenceKey.muteSystemAudioWhileRecording),
                 overlayPosition: defaults.string(forKey: AppPreferenceKey.overlayPosition) ?? OverlayPosition.bottom.rawValue,
                 translationTargetLanguage: defaults.string(forKey: AppPreferenceKey.translationTargetLanguage) ?? TranslationTargetLanguage.english.rawValue,
+                userMainLanguageCodes: storedUserMainLanguageCodes(
+                    from: defaults.string(forKey: legacyUserMainLanguageCodesKey)
+                ),
                 translateSelectedTextOnTranslationHotkey: defaults.object(forKey: AppPreferenceKey.translateSelectedTextOnTranslationHotkey) as? Bool ?? true,
                 autoCopyWhenNoFocusedInput: defaults.bool(forKey: AppPreferenceKey.autoCopyWhenNoFocusedInput),
                 launchAtLogin: defaults.bool(forKey: AppPreferenceKey.launchAtLogin),
@@ -346,8 +462,13 @@ enum ConfigurationTransferManager {
         defaults.set(general.selectedInputDeviceID, forKey: AppPreferenceKey.selectedInputDeviceID)
         defaults.set(general.interactionSoundsEnabled, forKey: AppPreferenceKey.interactionSoundsEnabled)
         defaults.set(general.interactionSoundPreset, forKey: AppPreferenceKey.interactionSoundPreset)
+        defaults.set(general.muteSystemAudioWhileRecording, forKey: AppPreferenceKey.muteSystemAudioWhileRecording)
         defaults.set(general.overlayPosition, forKey: AppPreferenceKey.overlayPosition)
         defaults.set(general.translationTargetLanguage, forKey: AppPreferenceKey.translationTargetLanguage)
+        defaults.set(
+            storageValue(for: general.userMainLanguageCodes),
+            forKey: legacyUserMainLanguageCodesKey
+        )
         defaults.set(general.translateSelectedTextOnTranslationHotkey, forKey: AppPreferenceKey.translateSelectedTextOnTranslationHotkey)
         defaults.set(general.autoCopyWhenNoFocusedInput, forKey: AppPreferenceKey.autoCopyWhenNoFocusedInput)
         defaults.set(general.launchAtLogin, forKey: AppPreferenceKey.launchAtLogin)
@@ -478,6 +599,27 @@ enum ConfigurationTransferManager {
             return []
         }
         return urls.map { ExportedBranchURLItem(id: $0.id, pattern: $0.pattern, iconPlaceholder: "url-icon-placeholder") }
+    }
+
+    private static let legacyUserMainLanguageCodesKey = "userMainLanguageCodes"
+    private static let defaultUserMainLanguageCodes = ["en"]
+
+    private static func sanitizeUserMainLanguageCodes(_ codes: [String]) -> [String] {
+        let sanitized = codes
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
+            .filter { !$0.isEmpty }
+        let deduplicated = Array(NSOrderedSet(array: sanitized)) as? [String] ?? sanitized
+        return deduplicated.isEmpty ? defaultUserMainLanguageCodes : deduplicated
+    }
+
+    private static func storedUserMainLanguageCodes(from rawValue: String?) -> [String] {
+        guard let rawValue, !rawValue.isEmpty else { return defaultUserMainLanguageCodes }
+        let parts = rawValue.split(separator: ",").map(String.init)
+        return sanitizeUserMainLanguageCodes(parts)
+    }
+
+    private static func storageValue(for codes: [String]) -> String {
+        sanitizeUserMainLanguageCodes(codes).joined(separator: ",")
     }
 
     private static func sanitizeSensitive(_ value: String) -> String {

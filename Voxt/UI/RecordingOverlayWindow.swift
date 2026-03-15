@@ -57,6 +57,7 @@ class OverlayState: ObservableObject {
 class RecordingOverlayWindow: NSPanel {
 
     private var hostingView: NSHostingView<OverlayContent>?
+    private var visibilityToken: UInt64 = 0
 
     init() {
         super.init(
@@ -76,6 +77,7 @@ class RecordingOverlayWindow: NSPanel {
     }
 
     func show(state: OverlayState, position: OverlayPosition) {
+        visibilityToken &+= 1
         let content = OverlayContent(state: state)
         let hosting = NSHostingView(rootView: content)
         hosting.translatesAutoresizingMaskIntoConstraints = false
@@ -102,11 +104,14 @@ class RecordingOverlayWindow: NSPanel {
     }
 
     func hide(completion: (() -> Void)? = nil) {
+        let token = visibilityToken
         NSAnimationContext.runAnimationGroup({ ctx in
             ctx.duration = 0.3
             animator().alphaValue = 0
         }, completionHandler: { [weak self] in
-            self?.orderOut(nil)
+            guard let self else { return }
+            guard token == self.visibilityToken else { return }
+            self.orderOut(nil)
             completion?()
         })
     }

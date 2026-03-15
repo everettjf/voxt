@@ -12,6 +12,8 @@
 "Audio" = "Audio";
 "Microphone" = "Microphone";
 "Interaction Sounds" = "Interaction Sounds";
+"Mute system audio while recording" = "Mute system audio while recording";
+"After the start sound plays, Voxt mutes your Mac's current output volume during recording and restores it before the end sound." = "After the start sound plays, Voxt mutes your Mac's current output volume during recording and restores it before the end sound.";
 "Sound Preset" = "Sound Preset";
 "Preview" = "Preview";
 "Try Sound" = "Try Sound";
@@ -77,6 +79,7 @@
 "Apache License 2.0" = "Apache License 2.0";
 "Project" = "Project";
 "Feedback" = "Feedback";
+"No microphone available" = "No microphone available";
 "Author" = "Author";
 "Thanks" = "Thanks";
 "Logs" = "Logs";
@@ -442,3 +445,9 @@
 "Needs Setup" = "Needs Setup";
 "Model needs to be installed." = "Model needs to be installed.";
 "Configuration required." = "Configuration required.";
+"Mute other media audio while recording" = "Mute other media audio while recording";
+"When enabled, Voxt requests system audio recording permission so it can mute other apps' media audio during recording and restore it after transcription completes." = "When enabled, Voxt requests system audio recording permission so it can mute other apps' media audio during recording and restore it after transcription completes.";
+"System audio recording permission granted." = "System audio recording permission granted.";
+"System audio recording permission is required for this feature. You can grant it in Settings > Permissions." = "System audio recording permission is required for this feature. You can grant it in Settings > Permissions.";
+"System Audio Recording Permission" = "System Audio Recording Permission";
+"Required only when muting other apps' media audio during recording is enabled." = "Required only when muting other apps' media audio during recording is enabled.";

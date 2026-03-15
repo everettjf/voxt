@@ -4,19 +4,22 @@ import AppKit
 final class InteractionSoundPlayer {
     private let volume: Float = 0.22
 
-    func playStart() {
+    @discardableResult
+    func playStart() -> TimeInterval {
         let sounds = resolvedSounds(for: currentPreset())
-        play(named: sounds.start)
+        return play(named: sounds.start)
     }
 
-    func playEnd() {
+    @discardableResult
+    func playEnd() -> TimeInterval {
         let sounds = resolvedSounds(for: currentPreset())
-        play(named: sounds.end)
+        return play(named: sounds.end)
     }
 
-    func playPreview(preset: InteractionSoundPreset) {
+    @discardableResult
+    func playPreview(preset: InteractionSoundPreset) -> TimeInterval {
         let sounds = resolvedSounds(for: preset)
-        play(named: sounds.start)
+        return play(named: sounds.start)
     }
 
     private func currentPreset() -> InteractionSoundPreset {
@@ -37,10 +40,11 @@ final class InteractionSoundPlayer {
         }
     }
 
-    private func play(named name: String) {
+    private func play(named name: String) -> TimeInterval {
         let sound = NSSound(named: name) ?? NSSound(named: "Pop") ?? NSSound(named: "Tink")
         sound?.stop()
         sound?.volume = volume
         sound?.play()
+        return sound?.duration ?? 0
     }
 }

@@ -16,6 +16,10 @@ extension AppDelegate {
         defaults.bool(forKey: AppPreferenceKey.interactionSoundsEnabled)
     }
 
+    var muteSystemAudioWhileRecording: Bool {
+        defaults.bool(forKey: AppPreferenceKey.muteSystemAudioWhileRecording)
+    }
+
     var overlayPosition: OverlayPosition {
         enumValue(forKey: AppPreferenceKey.overlayPosition, default: .bottom)
     }
