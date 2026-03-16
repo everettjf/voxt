@@ -12,6 +12,7 @@ struct PermissionsSettingsView: View {
         case speechRecognition
         case accessibility
         case inputMonitoring
+        case systemAudioCapture
 
         var id: String { rawValue }
 
@@ -21,6 +22,7 @@ struct PermissionsSettingsView: View {
             case .speechRecognition: return "speech"
             case .accessibility: return "accessibility"
             case .inputMonitoring: return "inputMonitoring"
+            case .systemAudioCapture: return "systemAudioCapture"
             }
         }
 
@@ -30,6 +32,7 @@ struct PermissionsSettingsView: View {
             case .speechRecognition: return "Speech Recognition Permission"
             case .accessibility: return "Accessibility Permission"
             case .inputMonitoring: return "Input Monitoring Permission"
+            case .systemAudioCapture: return "System Audio Recording Permission"
             }
         }
 
@@ -43,6 +46,8 @@ struct PermissionsSettingsView: View {
                 return "Required to paste transcription text into other apps."
             case .inputMonitoring:
                 return "Required for reliable global modifier hotkeys (such as fn)."
+            case .systemAudioCapture:
+                return "Required only when muting other apps' media audio during recording is enabled."
             }
         }
     }
@@ -100,6 +105,20 @@ struct PermissionsSettingsView: View {
 
     @AppStorage(AppPreferenceKey.appEnhancementEnabled) private var appEnhancementEnabled = false
     @AppStorage(AppPreferenceKey.appBranchCustomBrowsers) private var appBranchCustomBrowsersJSON = "[]"
+    @AppStorage(AppPreferenceKey.muteSystemAudioWhileRecording) private var muteSystemAudioWhileRecording = false
+
+    private var permissionKinds: [PermissionKind] {
+        var kinds: [PermissionKind] = [
+            .microphone,
+            .speechRecognition,
+            .accessibility,
+            .inputMonitoring
+        ]
+        if muteSystemAudioWhileRecording {
+            kinds.append(.systemAudioCapture)
+        }
+        return kinds
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -112,7 +131,7 @@ struct PermissionsSettingsView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
 
-                    ForEach(PermissionKind.allCases) { kind in
+                    ForEach(permissionKinds) { kind in
                         permissionRow(kind)
                     }
                 }
@@ -161,6 +180,9 @@ struct PermissionsSettingsView: View {
             refreshStates()
             loadBrowserTargets()
             refreshBrowserAutomationStates()
+        }
+        .onChange(of: muteSystemAudioWhileRecording) { _, _ in
+            refreshStates()
         }
         .onDisappear {
             stopAllMonitoring()
@@ -261,7 +283,7 @@ struct PermissionsSettingsView: View {
 
     private func refreshStates() {
         var snapshot: [PermissionKind: PermissionState] = [:]
-        for kind in PermissionKind.allCases {
+        for kind in permissionKinds {
             snapshot[kind] = currentState(for: kind)
         }
         states = snapshot
@@ -281,6 +303,8 @@ struct PermissionsSettingsView: View {
                 return CGPreflightListenEventAccess() ? .enabled : .disabled
             }
             return .enabled
+        case .systemAudioCapture:
+            return SystemAudioCapturePermission.authorizationStatus() == .authorized ? .enabled : .disabled
         }
     }
 
@@ -303,6 +327,8 @@ struct PermissionsSettingsView: View {
             if #available(macOS 10.15, *) {
                 _ = CGRequestListenEventAccess()
             }
+        case .systemAudioCapture:
+            SystemAudioCapturePermission.requestAccess()
         }
     }
 
@@ -585,6 +611,9 @@ struct PermissionsSettingsView: View {
             urlString = "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"
         case .inputMonitoring:
             urlString = "x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent"
+        case .systemAudioCapture:
+            SystemAudioCapturePermission.openSystemSettings()
+            return
         }
 
         if let url = URL(string: urlString) {
@@ -599,7 +628,7 @@ struct PermissionsSettingsView: View {
     }
 
     private func permissionSnapshotText(_ snapshot: [PermissionKind: PermissionState]) -> String {
-        PermissionKind.allCases
+        permissionKinds
             .map { kind in
                 let state = snapshot[kind] ?? .disabled
                 return "\(kind.logKey)=\(state == .enabled ? "on" : "off")"

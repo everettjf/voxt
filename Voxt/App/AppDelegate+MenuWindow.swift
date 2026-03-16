@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import CoreAudio
 
 extension AppDelegate {
     private var feedbackURL: URL {
@@ -16,6 +17,10 @@ extension AppDelegate {
         let reportItem = NSMenuItem(title: AppLocalization.localizedString("Report"), action: #selector(openReportSettings), keyEquivalent: "")
         reportItem.target = self
         menu.addItem(reportItem)
+
+        let microphoneItem = NSMenuItem(title: AppLocalization.localizedString("Microphone"), action: nil, keyEquivalent: "")
+        microphoneItem.submenu = buildMicrophoneMenu()
+        menu.addItem(microphoneItem)
 
         let checkUpdatesItem = NSMenuItem(
             title: AppLocalization.localizedString("Check for Updates…"),
@@ -48,6 +53,49 @@ extension AppDelegate {
         statusItem?.menu = menu
     }
 
+    private func buildMicrophoneMenu() -> NSMenu {
+        let submenu = NSMenu()
+        let devices = AudioInputDeviceManager.availableInputDevices()
+        let resolvedSelectedID = resolvedMenuSelectedInputDeviceID(from: devices)
+
+        for device in devices {
+            let item = NSMenuItem(title: device.name, action: #selector(selectMicrophoneFromMenu(_:)), keyEquivalent: "")
+            item.target = self
+            item.tag = Int(device.id)
+            item.state = device.id == resolvedSelectedID ? .on : .off
+            submenu.addItem(item)
+        }
+
+        if submenu.items.isEmpty {
+            let emptyItem = NSMenuItem(title: AppLocalization.localizedString("No microphone available"), action: nil, keyEquivalent: "")
+            emptyItem.isEnabled = false
+            submenu.addItem(emptyItem)
+        }
+
+        return submenu
+    }
+
+    private func resolvedMenuSelectedInputDeviceID(from devices: [AudioInputDevice]) -> AudioDeviceID? {
+        if let selectedInputDeviceID,
+           devices.contains(where: { $0.id == selectedInputDeviceID }) {
+            return selectedInputDeviceID
+        }
+
+        if let defaultDeviceID = AudioInputDeviceManager.defaultInputDeviceID(),
+           devices.contains(where: { $0.id == defaultDeviceID }) {
+            UserDefaults.standard.set(Int(defaultDeviceID), forKey: AppPreferenceKey.selectedInputDeviceID)
+            return defaultDeviceID
+        }
+
+        if let first = devices.first {
+            UserDefaults.standard.set(Int(first.id), forKey: AppPreferenceKey.selectedInputDeviceID)
+            return first.id
+        }
+
+        UserDefaults.standard.set(0, forKey: AppPreferenceKey.selectedInputDeviceID)
+        return nil
+    }
+
     @objc private func checkForUpdates() {
         VoxtLog.info("Manual update check triggered from menu.")
         appUpdateManager.checkForUpdates(source: .manual)
@@ -64,6 +112,10 @@ extension AppDelegate {
 
     @objc private func openReportSettings() {
         openSettingsWindow(selectTab: .report)
+    }
+
+    @objc private func selectMicrophoneFromMenu(_ sender: NSMenuItem) {
+        UserDefaults.standard.set(sender.tag, forKey: AppPreferenceKey.selectedInputDeviceID)
     }
 
     func openSettingsWindow(selectTab: SettingsTab?) {

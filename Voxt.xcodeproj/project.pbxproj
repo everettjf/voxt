@@ -33,9 +33,22 @@
 		694309BD2F5280180056FECC /* ja */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = ja; path = Localizable.strings; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		D4A1B2C32F7A100100ABCDEF /* Exceptions for "Voxt" folder in "Voxt" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Voxt/Info.plist,
+			);
+			target = 31F19CCC2F4D76D200E96913 /* Voxt */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		31F19CCF2F4D76D200E96913 /* Voxt */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				D4A1B2C32F7A100100ABCDEF /* Exceptions for "Voxt" folder in "Voxt" target */,
+			);
 			path = Voxt;
 			sourceTree = "<group>";
 		};

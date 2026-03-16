@@ -47,3 +47,56 @@ enum AccessibilityPermissionManager {
         )
     }
 }
+
+enum EventListeningPermissionManager {
+    struct Status {
+        let accessibilityGranted: Bool
+        let inputMonitoringGranted: Bool
+
+        var description: String {
+            let accessibility = accessibilityGranted ? "on" : "off"
+            let inputMonitoring = inputMonitoringGranted ? "on" : "off"
+            return "permissions: accessibility=\(accessibility), inputMonitoring=\(inputMonitoring)"
+        }
+    }
+
+    static func status() -> Status {
+        Status(
+            accessibilityGranted: AccessibilityPermissionManager.isTrusted(),
+            inputMonitoringGranted: isInputMonitoringGranted()
+        )
+    }
+
+    static func isInputMonitoringGranted() -> Bool {
+        if #available(macOS 10.15, *) {
+            return CGPreflightListenEventAccess()
+        }
+        return true
+    }
+
+    @discardableResult
+    static func requestInputMonitoring(prompt: Bool) -> Bool {
+        guard #available(macOS 10.15, *) else {
+            return true
+        }
+        if prompt {
+            _ = CGRequestListenEventAccess()
+        }
+        return CGPreflightListenEventAccess()
+    }
+}
+
+extension CGEventTapLocation {
+    var debugName: String {
+        switch self {
+        case .cghidEventTap:
+            return "cghidEventTap"
+        case .cgSessionEventTap:
+            return "cgSessionEventTap"
+        case .cgAnnotatedSessionEventTap:
+            return "cgAnnotatedSessionEventTap"
+        @unknown default:
+            return "unknown"
+        }
+    }
+}

@@ -12,6 +12,8 @@
 "Audio" = "音频";
 "Microphone" = "麦克风";
 "Interaction Sounds" = "交互提示音";
+"Mute system audio while recording" = "录制时静音系统音频";
+"After the start sound plays, Voxt mutes your Mac's current output volume during recording and restores it before the end sound." = "开始提示音播放后，Voxt 会在录制期间将 Mac 当前输出音量静音，并在结束提示音前恢复。";
 "Sound Preset" = "提示音预设";
 "Preview" = "预览";
 "Try Sound" = "试听";
@@ -50,6 +52,8 @@
 "Record Transcription Shortcut" = "录制转录快捷键";
 "Record Translation Shortcut" = "录制翻译快捷键";
 "Type your shortcut now. Press Esc to cancel recording." = "请按下快捷键进行录制，按 Esc 取消。";
+"Input Monitoring is required to capture fn-based shortcuts such as fn+space reliably." = "要可靠捕获 fn+space 这类基于 fn 的快捷键，需要开启输入监控权限。";
+"System-reserved shortcuts such as fn+space may still be intercepted by macOS. If capture fails, disable or remap the Globe / input source shortcut in System Settings." = "像 fn+space 这类系统保留快捷键仍可能被 macOS 拦截。如果录入失败，请在系统设置中关闭或改绑 Globe / 输入法切换快捷键。";
 "Voice End Command" = "语音结束指令";
 "Enable Voice End Command" = "启用语音结束指令";
 "When enabled, Voxt treats the configured spoken command as a stop action. If that command appears at the end of the transcript and there is about 1 second of silence after it, the session ends automatically." = "开启后，Voxt 会把配置的语音指令视为结束操作。如果该指令出现在转录尾部，且其后约 1 秒没有明显声音输入，会自动结束当前会话。";
@@ -77,6 +81,7 @@
 "Apache License 2.0" = "Apache 2.0 许可证";
 "Project" = "项目";
 "Feedback" = "问题反馈";
+"No microphone available" = "没有可用的麦克风";
 "Author" = "作者";
 "Thanks" = "感谢";
 "Logs" = "日志";
@@ -116,6 +121,7 @@
 "%@ · Audio: %@" = "%@ · 音频：%@";
 "Normal" = "普通";
 "Conflicts with Spotlight (⌘Space)." = "与 Spotlight（⌘Space）冲突。";
+"May conflict with Globe / input source switching (fn Space). Disable or remap the macOS shortcut if needed." = "可能与 Globe / 输入法切换（fn Space）冲突。如有需要，请关闭或改绑 macOS 系统快捷键。";
 "Conflicts with Finder search (⌥⌘Space)." = "与 Finder 搜索（⌥⌘Space）冲突。";
 "Conflicts with App Switcher (⌘Tab)." = "与应用切换（⌘Tab）冲突。";
 "Conflicts with window switcher (⌘`)." = "与窗口切换（⌘`）冲突。";
@@ -180,6 +186,7 @@
 "Required for Apple Direct Dictation engine." = "用于 Apple 直接听写引擎。";
 "Required to paste transcription text into other apps." = "用于将转录文本粘贴到其他应用。";
 "Required for reliable global modifier hotkeys (such as fn)." = "用于可靠捕获全局修饰键快捷键（如 fn）。";
+"fn+space may conflict with macOS Globe or input source switching. If capture is unreliable, enable Input Monitoring and remap the system shortcut." = "fn+space 可能与 macOS 的 Globe 或输入法切换冲突。如果录入不稳定，请开启输入监控权限并改绑系统快捷键。";
 "Enabled" = "已开启";
 "Disabled" = "未开启";
 "Request" = "请求开启";
@@ -470,3 +477,9 @@
 "Traditional Chinese" = "繁体中文";
 "Doubao uses App ID + Access Token for streaming API." = "Doubao 流式 API 使用 App ID 和 Access Token。";
 "Aliyun ASR in Voxt uses realtime WebSocket only: Qwen models use /api-ws/v1/realtime, Fun/Paraformer models use /api-ws/v1/inference." = "Voxt 中的阿里云 ASR 仅支持 realtime WebSocket：Qwen 模型使用 /api-ws/v1/realtime，Fun/Paraformer 模型使用 /api-ws/v1/inference。";
+"Mute other media audio while recording" = "录制时静音其他媒体音频";
+"When enabled, Voxt requests system audio recording permission so it can mute other apps' media audio during recording and restore it after transcription completes." = "开启后，Voxt 会请求系统音频录制权限，以便在录制期间静音其他应用的媒体音频，并在转录完成后恢复。";
+"System audio recording permission granted." = "系统音频录制权限已授予。";
+"System audio recording permission is required for this feature. You can grant it in Settings > Permissions." = "此功能需要系统音频录制权限。你可以在 设置 > 权限 中授予。";
+"System Audio Recording Permission" = "系统音频录制权限";
+"Required only when muting other apps' media audio during recording is enabled." = "仅当开启“录制时静音其他应用媒体音频”时才需要。";

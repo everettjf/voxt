@@ -42,6 +42,7 @@ enum ConfigurationTransferManager {
         var selectedInputDeviceID: Int
         var interactionSoundsEnabled: Bool
         var interactionSoundPreset: String
+        var muteSystemAudioWhileRecording: Bool
         var overlayPosition: String
         var translationTargetLanguage: String
         var userMainLanguageCodes: [String]
@@ -67,6 +68,7 @@ enum ConfigurationTransferManager {
             case selectedInputDeviceID
             case interactionSoundsEnabled
             case interactionSoundPreset
+            case muteSystemAudioWhileRecording
             case overlayPosition
             case translationTargetLanguage
             case userMainLanguageCodes
@@ -93,6 +95,7 @@ enum ConfigurationTransferManager {
             selectedInputDeviceID: Int,
             interactionSoundsEnabled: Bool,
             interactionSoundPreset: String,
+            muteSystemAudioWhileRecording: Bool,
             overlayPosition: String,
             translationTargetLanguage: String,
             userMainLanguageCodes: [String],
@@ -117,6 +120,7 @@ enum ConfigurationTransferManager {
             self.selectedInputDeviceID = selectedInputDeviceID
             self.interactionSoundsEnabled = interactionSoundsEnabled
             self.interactionSoundPreset = interactionSoundPreset
+            self.muteSystemAudioWhileRecording = muteSystemAudioWhileRecording
             self.overlayPosition = overlayPosition
             self.translationTargetLanguage = translationTargetLanguage
             self.userMainLanguageCodes = UserMainLanguageOption.sanitizedSelection(userMainLanguageCodes)
@@ -144,6 +148,7 @@ enum ConfigurationTransferManager {
             selectedInputDeviceID = try container.decode(Int.self, forKey: .selectedInputDeviceID)
             interactionSoundsEnabled = try container.decode(Bool.self, forKey: .interactionSoundsEnabled)
             interactionSoundPreset = try container.decode(String.self, forKey: .interactionSoundPreset)
+            muteSystemAudioWhileRecording = try container.decodeIfPresent(Bool.self, forKey: .muteSystemAudioWhileRecording) ?? false
             overlayPosition = try container.decode(String.self, forKey: .overlayPosition)
             translationTargetLanguage = try container.decode(String.self, forKey: .translationTargetLanguage)
             userMainLanguageCodes = UserMainLanguageOption.sanitizedSelection(
@@ -466,6 +471,7 @@ enum ConfigurationTransferManager {
             selectedInputDeviceID: defaults.integer(forKey: AppPreferenceKey.selectedInputDeviceID),
             interactionSoundsEnabled: defaults.bool(forKey: AppPreferenceKey.interactionSoundsEnabled),
             interactionSoundPreset: defaults.string(forKey: AppPreferenceKey.interactionSoundPreset) ?? "",
+            muteSystemAudioWhileRecording: defaults.bool(forKey: AppPreferenceKey.muteSystemAudioWhileRecording),
             overlayPosition: defaults.string(forKey: AppPreferenceKey.overlayPosition) ?? OverlayPosition.bottom.rawValue,
             translationTargetLanguage: defaults.string(forKey: AppPreferenceKey.translationTargetLanguage) ?? TranslationTargetLanguage.english.rawValue,
             userMainLanguageCodes: UserMainLanguageOption.storedSelection(
@@ -547,6 +553,7 @@ enum ConfigurationTransferManager {
         defaults.set(general.selectedInputDeviceID, forKey: AppPreferenceKey.selectedInputDeviceID)
         defaults.set(general.interactionSoundsEnabled, forKey: AppPreferenceKey.interactionSoundsEnabled)
         defaults.set(general.interactionSoundPreset, forKey: AppPreferenceKey.interactionSoundPreset)
+        defaults.set(general.muteSystemAudioWhileRecording, forKey: AppPreferenceKey.muteSystemAudioWhileRecording)
         defaults.set(general.overlayPosition, forKey: AppPreferenceKey.overlayPosition)
         defaults.set(general.translationTargetLanguage, forKey: AppPreferenceKey.translationTargetLanguage)
         defaults.set(

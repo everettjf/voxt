@@ -36,6 +36,7 @@ enum AppPreferenceKey {
     static let selectedInputDeviceID = "selectedInputDeviceID"
     static let interactionSoundsEnabled = "interactionSoundsEnabled"
     static let interactionSoundPreset = "interactionSoundPreset"
+    static let muteSystemAudioWhileRecording = "muteSystemAudioWhileRecording"
     static let overlayPosition = "overlayPosition"
     static let interfaceLanguage = "interfaceLanguage"
     static let translationTargetLanguage = "translationTargetLanguage"

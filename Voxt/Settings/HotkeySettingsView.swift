@@ -9,6 +9,7 @@ private struct HotkeyConflictRule {
 }
 
 private let hotkeyConflictRules: [HotkeyConflictRule] = [
+    HotkeyConflictRule(keyCode: UInt16(kVK_Space), modifiers: [.function], messageKey: "May conflict with Globe / input source switching (fn Space). Disable or remap the macOS shortcut if needed."),
     HotkeyConflictRule(keyCode: UInt16(kVK_Space), modifiers: [.command], messageKey: "Conflicts with Spotlight (⌘Space)."),
     HotkeyConflictRule(keyCode: UInt16(kVK_Space), modifiers: [.command, .option], messageKey: "Conflicts with Finder search (⌥⌘Space)."),
     HotkeyConflictRule(keyCode: UInt16(kVK_Tab), modifiers: [.command], messageKey: "Conflicts with App Switcher (⌘Tab)."),
@@ -43,6 +44,7 @@ struct HotkeySettingsView: View {
     @State private var recordingField: RecordingField?
     @State private var pendingCapturedField: RecordingField?
     @State private var pendingCapturedHotkey: HotkeyPreference.Hotkey?
+    @State private var recorderMessageKey: String?
 
     private var hotkeyBinding: Binding<UInt16> {
         Binding(
@@ -277,6 +279,12 @@ struct HotkeySettingsView: View {
                             .foregroundStyle(.secondary)
                     }
 
+                    if let recorderMessageKey {
+                        Text(LocalizedStringKey(recorderMessageKey))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+
                     if let conflict = hotkeyConflictMessage(for: currentHotkey) {
                         Text(localizedString("Transcription shortcut: %@", conflict))
                             .font(.caption)
@@ -323,6 +331,12 @@ struct HotkeySettingsView: View {
                         onCancelCapture: {
                             discardPendingCapture()
                             recordingField = nil
+                        },
+                        onRecorderMessageChange: { messageKey in
+                            guard recorderMessageKey != messageKey else { return }
+                            DispatchQueue.main.async {
+                                recorderMessageKey = messageKey
+                            }
                         }
                     )
                     .frame(width: 0, height: 0)
@@ -364,6 +378,9 @@ struct HotkeySettingsView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     Text("Selected text shortcut behavior: If text is selected in a focused input, pressing the translation shortcut translates and replaces the selection directly. Tap and long press behave the same.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Text("fn+space may conflict with macOS Globe or input source switching. If capture is unreliable, enable Input Monitoring and remap the system shortcut.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -507,6 +524,7 @@ struct HotkeySettingsView: View {
     }
 
     private func discardPendingCapture() {
+        recorderMessageKey = nil
         pendingCapturedField = nil
         pendingCapturedHotkey = nil
         recordingField = nil

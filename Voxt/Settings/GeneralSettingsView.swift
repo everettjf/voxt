@@ -8,6 +8,7 @@ struct GeneralSettingsView: View {
     @AppStorage(AppPreferenceKey.selectedInputDeviceID) private var selectedInputDeviceIDRaw = 0
     @AppStorage(AppPreferenceKey.interactionSoundsEnabled) private var interactionSoundsEnabled = true
     @AppStorage(AppPreferenceKey.interactionSoundPreset) private var interactionSoundPresetRaw = InteractionSoundPreset.soft.rawValue
+    @AppStorage(AppPreferenceKey.muteSystemAudioWhileRecording) private var muteSystemAudioWhileRecording = false
     @AppStorage(AppPreferenceKey.overlayPosition) private var overlayPositionRaw = OverlayPosition.bottom.rawValue
     @AppStorage(AppPreferenceKey.interfaceLanguage) private var interfaceLanguageRaw = AppInterfaceLanguage.system.rawValue
     @AppStorage(AppPreferenceKey.translationTargetLanguage) private var translationTargetLanguageRaw = TranslationTargetLanguage.english.rawValue
@@ -36,6 +37,7 @@ struct GeneralSettingsView: View {
     @State private var modelStorageSelectionError: String?
     @State private var configurationTransferMessage: String?
     @State private var isUserMainLanguageSheetPresented = false
+    @State private var systemAudioPermissionMessage: String?
 
     private var selectedInputDeviceID: AudioDeviceID {
         AudioDeviceID(selectedInputDeviceIDRaw)
@@ -128,6 +130,17 @@ struct GeneralSettingsView: View {
                     Text("Play a short start chime when recording begins and an end chime when transcription completes.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
+
+                    Toggle("Mute other media audio while recording", isOn: $muteSystemAudioWhileRecording)
+                    Text("When enabled, Voxt requests system audio recording permission so it can mute other apps' media audio during recording and restore it after transcription completes.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+
+                    if let systemAudioPermissionMessage {
+                        Text(systemAudioPermissionMessage)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
 
                     HStack(alignment: .firstTextBaseline) {
                         Text("Sound Preset")
@@ -487,6 +500,24 @@ struct GeneralSettingsView: View {
         }
         .onChange(of: autoCheckForUpdates) { _, newValue in
             appUpdateManager.automaticallyChecksForUpdates = newValue
+        }
+        .onChange(of: muteSystemAudioWhileRecording) { _, newValue in
+            guard newValue else {
+                systemAudioPermissionMessage = nil
+                return
+            }
+
+            let status = SystemAudioCapturePermission.authorizationStatus()
+            if status == .authorized {
+                systemAudioPermissionMessage = nil
+                return
+            }
+
+            SystemAudioCapturePermission.requestAccess { granted in
+                systemAudioPermissionMessage = granted
+                    ? AppLocalization.localizedString("System audio recording permission granted.")
+                    : AppLocalization.localizedString("System audio recording permission is required for this feature. You can grant it in Settings > Permissions.")
+            }
         }
         .onChange(of: interfaceLanguageRaw) { _, _ in
             NotificationCenter.default.post(name: .voxtInterfaceLanguageDidChange, object: nil)

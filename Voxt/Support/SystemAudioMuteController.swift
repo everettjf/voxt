@@ -3,30 +3,116 @@ import CoreAudio
 
 @MainActor
 final class SystemAudioMuteController {
-    private let duckRatio: Float32 = 0.2
-    private let minimumDuckVolume: Float32 = 0.05
+    private struct ProcessTapSession {
+        let tapID: AudioObjectID
+        let aggregateDeviceID: AudioObjectID
+        let ioProcID: AudioDeviceIOProcID
+    }
 
-    private var savedVolume: Float32?
-    private var mutedDeviceID: AudioDeviceID?
+    private var processTapSession: ProcessTapSession?
 
-    func muteSystemAudioIfNeeded() {
-        guard savedVolume == nil else { return }
-        guard let outputDeviceID = defaultOutputDeviceID() else { return }
-        guard let volume = getOutputVolume(deviceID: outputDeviceID) else { return }
+    @discardableResult
+    func muteSystemAudioIfNeeded() -> Bool {
+        if processTapSession != nil {
+            return true
+        }
+        guard SystemAudioCapturePermission.authorizationStatus() == .authorized else {
+            return false
+        }
 
-        let duckedVolume = max(minimumDuckVolume, volume * duckRatio)
-        guard duckedVolume < volume else { return }
-
-        savedVolume = volume
-        mutedDeviceID = outputDeviceID
-        _ = setOutputVolume(deviceID: outputDeviceID, value: duckedVolume)
+        return activateProcessTapMuteIfPossible()
     }
 
     func restoreSystemAudioIfNeeded() {
-        guard let savedVolume, let deviceID = mutedDeviceID else { return }
-        _ = setOutputVolume(deviceID: deviceID, value: savedVolume)
-        self.savedVolume = nil
-        self.mutedDeviceID = nil
+        if let session = processTapSession {
+            AudioDeviceStop(session.aggregateDeviceID, session.ioProcID)
+            AudioDeviceDestroyIOProcID(session.aggregateDeviceID, session.ioProcID)
+            AudioHardwareDestroyAggregateDevice(session.aggregateDeviceID)
+            AudioHardwareDestroyProcessTap(session.tapID)
+            processTapSession = nil
+        }
+    }
+
+    private func activateProcessTapMuteIfPossible() -> Bool {
+        guard let bundleID = Bundle.main.bundleIdentifier,
+              !bundleID.isEmpty,
+              let outputDeviceID = defaultOutputDeviceID(),
+              let outputUID = deviceUID(for: outputDeviceID)
+        else {
+            return false
+        }
+
+        let tapDescription = CATapDescription(stereoGlobalTapButExcludeProcesses: [])
+        tapDescription.uuid = UUID()
+        tapDescription.name = "Voxt System Audio Mute"
+        tapDescription.isPrivate = true
+        tapDescription.isProcessRestoreEnabled = true
+        tapDescription.bundleIDs = [bundleID]
+        tapDescription.muteBehavior = .muted
+
+        var tapID = AudioObjectID(kAudioObjectUnknown)
+        let tapCreateStatus = AudioHardwareCreateProcessTap(tapDescription, &tapID)
+        guard tapCreateStatus == noErr, tapID != AudioObjectID(kAudioObjectUnknown) else {
+            return false
+        }
+
+        let aggregateUID = "voxt-process-tap-\(tapDescription.uuid.uuidString)"
+        let aggregateDescription: [String: Any] = [
+            kAudioAggregateDeviceNameKey: "VoxtProcessTap",
+            kAudioAggregateDeviceUIDKey: aggregateUID,
+            kAudioAggregateDeviceMainSubDeviceKey: outputUID,
+            kAudioAggregateDeviceIsPrivateKey: true,
+            kAudioAggregateDeviceIsStackedKey: false,
+            kAudioAggregateDeviceTapAutoStartKey: true,
+            kAudioAggregateDeviceSubDeviceListKey: [
+                [
+                    kAudioSubDeviceUIDKey: outputUID
+                ]
+            ],
+            kAudioAggregateDeviceTapListKey: [
+                [
+                    kAudioSubTapDriftCompensationKey: true,
+                    kAudioSubTapUIDKey: tapDescription.uuid.uuidString
+                ]
+            ]
+        ]
+
+        var aggregateDeviceID = AudioObjectID(kAudioObjectUnknown)
+        let aggregateStatus = AudioHardwareCreateAggregateDevice(aggregateDescription as CFDictionary, &aggregateDeviceID)
+        guard aggregateStatus == noErr, aggregateDeviceID != AudioObjectID(kAudioObjectUnknown) else {
+            AudioHardwareDestroyProcessTap(tapID)
+            return false
+        }
+
+        var ioProcID: AudioDeviceIOProcID?
+        let ioProcStatus = AudioDeviceCreateIOProcIDWithBlock(
+            &ioProcID,
+            aggregateDeviceID,
+            DispatchQueue.global(qos: .userInitiated)
+        ) { _, _, _, _, _ in
+            // The tap remains active while this no-op IOProc is running.
+        }
+
+        guard ioProcStatus == noErr, let ioProcID else {
+            AudioHardwareDestroyAggregateDevice(aggregateDeviceID)
+            AudioHardwareDestroyProcessTap(tapID)
+            return false
+        }
+
+        let startStatus = AudioDeviceStart(aggregateDeviceID, ioProcID)
+        guard startStatus == noErr else {
+            AudioDeviceDestroyIOProcID(aggregateDeviceID, ioProcID)
+            AudioHardwareDestroyAggregateDevice(aggregateDeviceID)
+            AudioHardwareDestroyProcessTap(tapID)
+            return false
+        }
+
+        processTapSession = ProcessTapSession(
+            tapID: tapID,
+            aggregateDeviceID: aggregateDeviceID,
+            ioProcID: ioProcID
+        )
+        return true
     }
 
     private func defaultOutputDeviceID() -> AudioDeviceID? {
@@ -50,30 +136,17 @@ final class SystemAudioMuteController {
         return deviceID
     }
 
-    private func getOutputVolume(deviceID: AudioDeviceID) -> Float32? {
+    private func deviceUID(for deviceID: AudioDeviceID) -> String? {
         var propertyAddress = AudioObjectPropertyAddress(
-            mSelector: kAudioDevicePropertyVolumeScalar,
-            mScope: kAudioDevicePropertyScopeOutput,
+            mSelector: kAudioDevicePropertyDeviceUID,
+            mScope: kAudioObjectPropertyScopeGlobal,
             mElement: kAudioObjectPropertyElementMain
         )
 
-        var value: Float32 = 0
-        var dataSize = UInt32(MemoryLayout<Float32>.size)
+        var value: CFString = "" as CFString
+        var dataSize = UInt32(MemoryLayout<CFString>.size)
         let status = AudioObjectGetPropertyData(deviceID, &propertyAddress, 0, nil, &dataSize, &value)
         guard status == noErr else { return nil }
-        return value
-    }
-
-    private func setOutputVolume(deviceID: AudioDeviceID, value: Float32) -> Bool {
-        var propertyAddress = AudioObjectPropertyAddress(
-            mSelector: kAudioDevicePropertyVolumeScalar,
-            mScope: kAudioDevicePropertyScopeOutput,
-            mElement: kAudioObjectPropertyElementMain
-        )
-
-        var mutableValue = max(0, min(1, value))
-        let dataSize = UInt32(MemoryLayout<Float32>.size)
-        let status = AudioObjectSetPropertyData(deviceID, &propertyAddress, 0, nil, dataSize, &mutableValue)
-        return status == noErr
+        return value as String
     }
 }

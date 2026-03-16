@@ -60,19 +60,7 @@ class HotkeyManager {
             (1 << CGEventType.keyUp.rawValue) |
             (1 << CGEventType.flagsChanged.rawValue)
 
-        guard let tap = CGEvent.tapCreate(
-            tap: .cgSessionEventTap,
-            place: .tailAppendEventTap,
-            options: .listenOnly,
-            eventsOfInterest: eventMask,
-            callback: { _, type, event, refcon -> Unmanaged<CGEvent>? in
-                guard let refcon else { return Unmanaged.passUnretained(event) }
-                let manager = Unmanaged<HotkeyManager>.fromOpaque(refcon).takeUnretainedValue()
-                manager.handleEvent(type: type, event: event)
-                return Unmanaged.passUnretained(event)
-            },
-            userInfo: Unmanaged.passUnretained(self).toOpaque()
-        ) else {
+        guard let (tap, tapLocation) = createEventTap(eventMask: eventMask) else {
             VoxtLog.error("Failed to create event tap. \(permissionStatusText())")
             scheduleRetry()
             return
@@ -84,7 +72,7 @@ class HotkeyManager {
         CGEvent.tapEnable(tap: tap, enable: true)
         retryTask?.cancel()
         retryTask = nil
-        VoxtLog.hotkey("Hotkey event tap started successfully.")
+        VoxtLog.hotkey("Hotkey event tap started successfully. location=\(tapLocation.debugName)")
     }
 
     func stop() {
@@ -118,13 +106,9 @@ class HotkeyManager {
     }
 
     private func preflightAndPromptPermissionsIfNeeded() -> Bool {
-        let accessibilityGranted = AccessibilityPermissionManager.isTrusted()
-        let inputMonitoringGranted: Bool
-        if #available(macOS 10.15, *) {
-            inputMonitoringGranted = CGPreflightListenEventAccess()
-        } else {
-            inputMonitoringGranted = true
-        }
+        let currentStatus = EventListeningPermissionManager.status()
+        let accessibilityGranted = currentStatus.accessibilityGranted
+        let inputMonitoringGranted = currentStatus.inputMonitoringGranted
 
         guard accessibilityGranted, inputMonitoringGranted else {
             if !accessibilityGranted, !didPromptAccessibility {
@@ -133,9 +117,7 @@ class HotkeyManager {
             }
             if !inputMonitoringGranted, !didPromptInputMonitoring {
                 didPromptInputMonitoring = true
-                if #available(macOS 10.15, *) {
-                    _ = CGRequestListenEventAccess()
-                }
+                _ = EventListeningPermissionManager.requestInputMonitoring(prompt: true)
             }
             VoxtLog.hotkey("Hotkey preflight blocked. \(permissionStatusText())")
             return false
@@ -145,14 +127,7 @@ class HotkeyManager {
     }
 
     private func permissionStatusText() -> String {
-        let accessibility = AccessibilityPermissionManager.isTrusted() ? "on" : "off"
-        let inputMonitoring: String
-        if #available(macOS 10.15, *) {
-            inputMonitoring = CGPreflightListenEventAccess() ? "on" : "off"
-        } else {
-            inputMonitoring = "on"
-        }
-        return "permissions: accessibility=\(accessibility), inputMonitoring=\(inputMonitoring)"
+        EventListeningPermissionManager.status().description
     }
 
     private func scheduleRetry() {
@@ -165,6 +140,30 @@ class HotkeyManager {
                 self.start()
             }
         }
+    }
+
+    private func createEventTap(eventMask: CGEventMask) -> (tap: CFMachPort, location: CGEventTapLocation)? {
+        let callback: CGEventTapCallBack = { _, type, event, refcon -> Unmanaged<CGEvent>? in
+            guard let refcon else { return Unmanaged.passUnretained(event) }
+            let manager = Unmanaged<HotkeyManager>.fromOpaque(refcon).takeUnretainedValue()
+            manager.handleEvent(type: type, event: event)
+            return Unmanaged.passUnretained(event)
+        }
+
+        for tapLocation in [CGEventTapLocation.cghidEventTap, .cgSessionEventTap] {
+            if let tap = CGEvent.tapCreate(
+                tap: tapLocation,
+                place: .tailAppendEventTap,
+                options: .listenOnly,
+                eventsOfInterest: eventMask,
+                callback: callback,
+                userInfo: Unmanaged.passUnretained(self).toOpaque()
+            ) {
+                return (tap, tapLocation)
+            }
+        }
+
+        return nil
     }
 
     private func handleEvent(type: CGEventType, event: CGEvent) {

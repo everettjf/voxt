@@ -12,6 +12,8 @@
 "Audio" = "オーディオ";
 "Microphone" = "マイク";
 "Interaction Sounds" = "操作音";
+"Mute system audio while recording" = "録音中はシステム音声を消音";
+"After the start sound plays, Voxt mutes your Mac's current output volume during recording and restores it before the end sound." = "開始音の再生後、Voxt は録音中に Mac の現在の出力音量を消音し、終了音の前に元へ戻します。";
 "Sound Preset" = "サウンドプリセット";
 "Preview" = "試聴";
 "Try Sound" = "試聴";
@@ -50,6 +52,8 @@
 "Record Transcription Shortcut" = "文字起こしショートカットを記録";
 "Record Translation Shortcut" = "翻訳ショートカットを記録";
 "Type your shortcut now. Press Esc to cancel recording." = "ショートカットを入力してください。Esc でキャンセルします。";
+"Input Monitoring is required to capture fn-based shortcuts such as fn+space reliably." = "fn+space のような fn ベースのショートカットを確実に取得するには、入力監視権限が必要です。";
+"System-reserved shortcuts such as fn+space may still be intercepted by macOS. If capture fails, disable or remap the Globe / input source shortcut in System Settings." = "fn+space のようなシステム予約ショートカットは、macOS によって引き続き横取りされることがあります。取得に失敗する場合は、システム設定で Globe / 入力ソースのショートカットを無効化または再割り当てしてください。";
 "Voice End Command" = "音声終了コマンド";
 "Enable Voice End Command" = "音声終了コマンドを有効にする";
 "When enabled, Voxt treats the configured spoken command as a stop action. If that command appears at the end of the transcript and there is about 1 second of silence after it, the session ends automatically." = "有効にすると、設定した音声コマンドを停止操作として扱います。そのコマンドが文字起こしの末尾に現れ、その後およそ 1 秒の無音が続いた場合、セッションを自動終了します。";
@@ -76,6 +80,7 @@
 "Apache License 2.0" = "Apache 2.0 ライセンス";
 "Project" = "プロジェクト";
 "Author" = "作者";
+"No microphone available" = "利用可能なマイクがありません";
 "Thanks" = "謝辞";
 "Logs" = "ログ";
 "Export Latest Logs (2000)" = "最新ログをエクスポート（2000件）";
@@ -114,6 +119,7 @@
 "%@ · Audio: %@" = "%@ ・ 音声: %@";
 "Normal" = "通常";
 "Conflicts with Spotlight (⌘Space)." = "Spotlight（⌘Space）と競合します。";
+"May conflict with Globe / input source switching (fn Space). Disable or remap the macOS shortcut if needed." = "Globe / 入力ソース切替（fn Space）と競合する可能性があります。必要に応じて macOS のショートカットを無効化または再割り当てしてください。";
 "Conflicts with Finder search (⌥⌘Space)." = "Finder 検索（⌥⌘Space）と競合します。";
 "Conflicts with App Switcher (⌘Tab)." = "アプリ切替（⌘Tab）と競合します。";
 "Conflicts with window switcher (⌘`)." = "ウィンドウ切替（⌘`）と競合します。";
@@ -178,6 +184,7 @@
 "Required for Apple Direct Dictation engine." = "Apple Direct Dictation エンジンに必要です。";
 "Required to paste transcription text into other apps." = "他アプリへ文字起こし結果を貼り付けるために必要です。";
 "Required for reliable global modifier hotkeys (such as fn)." = "fn などのグローバル修飾キーの検出に必要です。";
+"fn+space may conflict with macOS Globe or input source switching. If capture is unreliable, enable Input Monitoring and remap the system shortcut." = "fn+space は macOS の Globe または入力ソース切替と競合することがあります。取得が不安定な場合は、入力監視を有効にし、システムショートカットを再割り当てしてください。";
 "Enabled" = "有効";
 "Disabled" = "無効";
 "Request" = "許可を要求";
@@ -450,6 +457,12 @@
 "Search languages" = "言語を検索";
 "No languages found." = "一致する言語がありません。";
 "Set as primary language" = "主言語に設定";
+"Mute other media audio while recording" = "録音中は他アプリのメディア音声をミュートする";
+"When enabled, Voxt requests system audio recording permission so it can mute other apps' media audio during recording and restore it after transcription completes." = "有効にすると、Voxt は録音中に他アプリのメディア音声をミュートし、文字起こし完了後に復元するためのシステム音声録音権限を要求します。";
+"System audio recording permission granted." = "システム音声録音の権限が許可されました。";
+"System audio recording permission is required for this feature. You can grant it in Settings > Permissions." = "この機能にはシステム音声録音の権限が必要です。Settings > Permissions から許可できます。";
+"System Audio Recording Permission" = "システム音声録音の権限";
+"Required only when muting other apps' media audio during recording is enabled." = "録音中に他アプリのメディア音声をミュートする機能を有効にした場合にのみ必要です。";
 "Feedback" = "フィードバック";
 "Chinese (Traditional)" = "中国語（繁体字）";
 "Engine Hint Settings" = "エンジンヒント設定";
