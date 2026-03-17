@@ -6,6 +6,18 @@ The format is based on Keep a Changelog.
 
 ## [Unreleased]
 
+## [1.6.1] - 2026-03-17
+
+### Added
+- Added a configurable dictionary ingest flow with localized settings copy and model selection controls.
+
+### Changed
+- Refined rewrite answer card behavior and related recording overlay handling for rewrite and translation result flows.
+
+### Fixed
+- Persisted dictionary ingest model selection across launches and configuration export/import.
+- Localized rewrite setting labels consistently across English, Simplified Chinese, and Japanese, and fixed settings window stability issues.
+
 ## [1.6.0] - 2026-03-16
 
 ### Added
