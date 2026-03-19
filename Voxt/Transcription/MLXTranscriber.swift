@@ -275,6 +275,8 @@ class MLXTranscriber: ObservableObject, TranscriberProtocol {
         guard !rawSamples.isEmpty else { return nil }
 
         do {
+            modelManager.beginActiveUse()
+            defer { modelManager.endActiveUse() }
             let model = try await modelManager.loadModel()
             let audioSamples = try prepareInputSamples(rawSamples, sampleRate: sampleRate)
             let parameters = generationParameters(for: stage)

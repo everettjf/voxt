@@ -1,6 +1,7 @@
 import Foundation
 import Combine
 import CFNetwork
+import MLX
 import MLXAudioSTT
 import HuggingFace
 
@@ -89,15 +90,17 @@ class MLXModelManager: ObservableObject {
     private var loadedRepo: String?
     private var downloadTask: Task<Void, Never>?
     private var sizeTask: Task<Void, Never>?
+    private var idleUnloadTask: Task<Void, Never>?
     private var downloadTempDir: URL?
     private let downloadSizeTolerance: Double = 0.9
     private let downloadRetryLimit = 3
+    private let idleUnloadDelay: Duration = .seconds(90)
+    private var activeUseCount = 0
 
     init(modelRepo: String, hubBaseURL: URL = URL(string: "https://huggingface.co")!) {
         self.modelRepo = Self.canonicalModelRepo(modelRepo)
         self.hubBaseURL = hubBaseURL
         checkExistingModel()
-        fetchRemoteSize()
     }
 
     var currentModelRepo: String { modelRepo }
@@ -158,9 +161,12 @@ class MLXModelManager: ObservableObject {
     func updateModel(repo: String) {
         let canonicalRepo = Self.canonicalModelRepo(repo)
         guard canonicalRepo != modelRepo else { return }
+        cancelIdleUnloadTask()
         modelRepo = canonicalRepo
         loadedModel = nil
         loadedRepo = nil
+        activeUseCount = 0
+        Memory.clearCache()
         checkExistingModel()
         fetchRemoteSize()
     }
@@ -267,6 +273,7 @@ class MLXModelManager: ObservableObject {
     }
 
     func loadModel() async throws -> any STTGenerationModel {
+        cancelIdleUnloadTask()
         if let model = loadedModel, loadedRepo == modelRepo {
             return model
         }
@@ -285,8 +292,11 @@ class MLXModelManager: ObservableObject {
     }
 
     func deleteModel() {
+        cancelIdleUnloadTask()
         loadedModel = nil
         loadedRepo = nil
+        activeUseCount = 0
+        Memory.clearCache()
 
         clearCurrentRepoHubCache()
 
@@ -296,6 +306,18 @@ class MLXModelManager: ObservableObject {
         }
         try? FileManager.default.removeItem(at: modelDir)
         state = .notDownloaded
+    }
+
+    func beginActiveUse() {
+        activeUseCount += 1
+        cancelIdleUnloadTask()
+    }
+
+    func endActiveUse() {
+        activeUseCount = max(0, activeUseCount - 1)
+        guard activeUseCount == 0 else { return }
+        Memory.clearCache()
+        scheduleIdleUnloadIfNeeded()
     }
 
     var modelSizeOnDisk: String {
@@ -695,6 +717,41 @@ class MLXModelManager: ObservableObject {
         }
 
         return "Download failed: \(error.localizedDescription)"
+    }
+
+    private func scheduleIdleUnloadIfNeeded() {
+        guard loadedModel != nil else { return }
+        idleUnloadTask?.cancel()
+        let expectedRepo = loadedRepo
+        let delay = idleUnloadDelay
+        idleUnloadTask = Task { [weak self] in
+            do {
+                try await Task.sleep(for: delay)
+            } catch {
+                return
+            }
+            guard let self else { return }
+            await MainActor.run {
+                self.unloadLoadedModelIfIdle(expectedRepo: expectedRepo)
+            }
+        }
+    }
+
+    private func cancelIdleUnloadTask() {
+        idleUnloadTask?.cancel()
+        idleUnloadTask = nil
+    }
+
+    private func unloadLoadedModelIfIdle(expectedRepo: String?) {
+        guard activeUseCount == 0 else { return }
+        guard loadedModel != nil, loadedRepo == expectedRepo else { return }
+
+        loadedModel = nil
+        loadedRepo = nil
+        idleUnloadTask = nil
+        Memory.clearCache()
+        checkExistingModel()
+        VoxtLog.info("MLX Audio model released after idle period.", verbose: true)
     }
 
     private func clearHubCache(for repoID: Repo.ID) {

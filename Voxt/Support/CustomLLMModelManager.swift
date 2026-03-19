@@ -1,6 +1,7 @@
 import Foundation
 import HuggingFace
 import Combine
+import MLX
 import MLXLMCommon
 
 @MainActor
@@ -131,10 +132,13 @@ class CustomLLMModelManager: ObservableObject {
     private var downloadTask: Task<Void, Never>?
     private var downloadProgressTask: Task<Void, Never>?
     private var sizeTask: Task<Void, Never>?
+    private var idleUnloadTask: Task<Void, Never>?
     private var inferenceContainer: ModelContainer?
     private var inferenceModelRepo: String?
     private var lastLoggedModelPresence: (repo: String, downloaded: Bool)?
     private var lastInvalidRepoLogged: String?
+    private let idleUnloadDelay: Duration = .seconds(90)
+    private var activeInferenceCount = 0
 
     init(modelRepo: String, hubBaseURL: URL = URL(string: "https://huggingface.co")!) {
         let sanitizedRepo = Self.isSupportedModelRepo(modelRepo) ? modelRepo : Self.defaultModelRepo
@@ -146,7 +150,6 @@ class CustomLLMModelManager: ObservableObject {
         }
         VoxtLog.info("Custom LLM manager initialized. repo=\(sanitizedRepo), hub=\(hubBaseURL.absoluteString)")
         checkExistingModel()
-        fetchRemoteSize()
     }
 
     var currentModelRepo: String { modelRepo }
@@ -154,69 +157,70 @@ class CustomLLMModelManager: ObservableObject {
     func enhance(_ rawText: String, systemPrompt: String) async throws -> String {
         let input = rawText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !input.isEmpty else { return rawText }
-
-        guard isModelDownloaded(repo: modelRepo) else {
-            throw NSError(
-                domain: "Voxt.CustomLLM",
-                code: 404,
-                userInfo: [NSLocalizedDescriptionKey: "Custom LLM model is not installed locally."]
-            )
-        }
-
-        let container: ModelContainer
-        if let cached = inferenceContainer, inferenceModelRepo == modelRepo {
-            container = cached
-        } else {
-            guard let directory = cacheDirectory(for: modelRepo) else {
+        return try await withActiveInference {
+            guard isModelDownloaded(repo: modelRepo) else {
                 throw NSError(
                     domain: "Voxt.CustomLLM",
-                    code: -10,
-                    userInfo: [NSLocalizedDescriptionKey: "Invalid local model path."]
+                    code: 404,
+                    userInfo: [NSLocalizedDescriptionKey: "Custom LLM model is not installed locally."]
                 )
             }
-            container = try await loadModelContainer(directory: directory)
-            inferenceContainer = container
-            inferenceModelRepo = modelRepo
+
+            let container: ModelContainer
+            if let cached = inferenceContainer, inferenceModelRepo == modelRepo {
+                container = cached
+            } else {
+                guard let directory = cacheDirectory(for: modelRepo) else {
+                    throw NSError(
+                        domain: "Voxt.CustomLLM",
+                        code: -10,
+                        userInfo: [NSLocalizedDescriptionKey: "Invalid local model path."]
+                    )
+                }
+                container = try await loadModelContainer(directory: directory)
+                inferenceContainer = container
+                inferenceModelRepo = modelRepo
+            }
+
+            let session = ChatSession(container, instructions: systemPrompt)
+            let params = generationParameters(for: .enhancement, inputLength: input.count)
+            session.generateParameters = params
+
+            let prompt = structuredOutputPrompt(
+                taskInstruction: "Clean up this transcription while preserving meaning and style.",
+                input: input
+            )
+
+            let startedAt = Date()
+            VoxtLog.llm(
+                "Custom LLM enhance started. repo=\(modelRepo), inputChars=\(input.count), maxTokens=\(params.maxTokens ?? 0), temperature=\(params.temperature), topP=\(params.topP)"
+            )
+            VoxtLog.llm(
+                """
+                Custom LLM enhance content. repo=\(modelRepo)
+                [system_prompt]
+                \(VoxtLog.llmPreview(systemPrompt))
+                [input]
+                \(VoxtLog.llmPreview(input))
+                [request_content]
+                \(VoxtLog.llmPreview(prompt))
+                """
+            )
+            let response = try await session.respond(to: modelPrompt(prompt, repo: modelRepo))
+            let elapsedMs = Int(Date().timeIntervalSince(startedAt) * 1000)
+            let cleaned = extractResultText(response)
+            VoxtLog.llm(
+                "Custom LLM enhance completed. repo=\(modelRepo), outputChars=\(cleaned.count), elapsedMs=\(elapsedMs)"
+            )
+            VoxtLog.llm(
+                """
+                Custom LLM enhance output. repo=\(modelRepo)
+                [output]
+                \(VoxtLog.llmPreview(cleaned))
+                """
+            )
+            return cleaned.isEmpty ? rawText : cleaned
         }
-
-        let session = ChatSession(container, instructions: systemPrompt)
-        let params = generationParameters(for: .enhancement, inputLength: input.count)
-        session.generateParameters = params
-
-        let prompt = structuredOutputPrompt(
-            taskInstruction: "Clean up this transcription while preserving meaning and style.",
-            input: input
-        )
-
-        let startedAt = Date()
-        VoxtLog.llm(
-            "Custom LLM enhance started. repo=\(modelRepo), inputChars=\(input.count), maxTokens=\(params.maxTokens ?? 0), temperature=\(params.temperature), topP=\(params.topP)"
-        )
-        VoxtLog.llm(
-            """
-            Custom LLM enhance content. repo=\(modelRepo)
-            [system_prompt]
-            \(VoxtLog.llmPreview(systemPrompt))
-            [input]
-            \(VoxtLog.llmPreview(input))
-            [request_content]
-            \(VoxtLog.llmPreview(prompt))
-            """
-        )
-        let response = try await session.respond(to: modelPrompt(prompt, repo: modelRepo))
-        let elapsedMs = Int(Date().timeIntervalSince(startedAt) * 1000)
-        let cleaned = extractResultText(response)
-        VoxtLog.llm(
-            "Custom LLM enhance completed. repo=\(modelRepo), outputChars=\(cleaned.count), elapsedMs=\(elapsedMs)"
-        )
-        VoxtLog.llm(
-            """
-            Custom LLM enhance output. repo=\(modelRepo)
-            [output]
-            \(VoxtLog.llmPreview(cleaned))
-            """
-        )
-        return cleaned.isEmpty ? rawText : cleaned
     }
 
     func enhance(userPrompt: String) async throws -> String {
@@ -226,48 +230,49 @@ class CustomLLMModelManager: ObservableObject {
     func enhance(userPrompt: String, repo: String) async throws -> String {
         let prompt = userPrompt.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !prompt.isEmpty else { return "" }
+        return try await withActiveInference {
+            guard isModelDownloaded(repo: repo) else {
+                throw NSError(
+                    domain: "Voxt.CustomLLM",
+                    code: 404,
+                    userInfo: [NSLocalizedDescriptionKey: "Custom LLM model is not installed locally."]
+                )
+            }
 
-        guard isModelDownloaded(repo: repo) else {
-            throw NSError(
-                domain: "Voxt.CustomLLM",
-                code: 404,
-                userInfo: [NSLocalizedDescriptionKey: "Custom LLM model is not installed locally."]
+            let container = try await container(for: repo)
+
+            let session = ChatSession(container, instructions: "")
+            let params = generationParameters(for: .enhancement, inputLength: prompt.count)
+            session.generateParameters = params
+
+            let startedAt = Date()
+            VoxtLog.llm(
+                "Custom LLM enhance started. repo=\(repo), inputChars=\(prompt.count), maxTokens=\(params.maxTokens ?? 0), temperature=\(params.temperature), topP=\(params.topP), mode=userMessage"
             )
+            VoxtLog.llm(
+                """
+                Custom LLM enhance content. repo=\(repo)
+                [system_prompt]
+                <empty>
+                [input]
+                \(VoxtLog.llmPreview(prompt))
+                """
+            )
+            let response = try await session.respond(to: modelPrompt(prompt, repo: repo))
+            let elapsedMs = Int(Date().timeIntervalSince(startedAt) * 1000)
+            let cleaned = extractResultText(response)
+            VoxtLog.llm(
+                "Custom LLM enhance completed. repo=\(repo), outputChars=\(cleaned.count), elapsedMs=\(elapsedMs)"
+            )
+            VoxtLog.llm(
+                """
+                Custom LLM enhance output. repo=\(repo)
+                [output]
+                \(VoxtLog.llmPreview(cleaned))
+                """
+            )
+            return cleaned
         }
-
-        let container = try await container(for: repo)
-
-        let session = ChatSession(container, instructions: "")
-        let params = generationParameters(for: .enhancement, inputLength: prompt.count)
-        session.generateParameters = params
-
-        let startedAt = Date()
-        VoxtLog.llm(
-            "Custom LLM enhance started. repo=\(repo), inputChars=\(prompt.count), maxTokens=\(params.maxTokens ?? 0), temperature=\(params.temperature), topP=\(params.topP), mode=userMessage"
-        )
-        VoxtLog.llm(
-            """
-            Custom LLM enhance content. repo=\(repo)
-            [system_prompt]
-            <empty>
-            [input]
-            \(VoxtLog.llmPreview(prompt))
-            """
-        )
-        let response = try await session.respond(to: modelPrompt(prompt, repo: repo))
-        let elapsedMs = Int(Date().timeIntervalSince(startedAt) * 1000)
-        let cleaned = extractResultText(response)
-        VoxtLog.llm(
-            "Custom LLM enhance completed. repo=\(repo), outputChars=\(cleaned.count), elapsedMs=\(elapsedMs)"
-        )
-        VoxtLog.llm(
-            """
-            Custom LLM enhance output. repo=\(repo)
-            [output]
-            \(VoxtLog.llmPreview(cleaned))
-            """
-        )
-        return cleaned
     }
 
     func translate(
@@ -310,51 +315,53 @@ class CustomLLMModelManager: ObservableObject {
         instructions: String,
         modelRepo: String
     ) async throws -> String {
-        guard isModelDownloaded(repo: modelRepo) else {
-            throw NSError(
-                domain: "Voxt.CustomLLM",
-                code: 404,
-                userInfo: [NSLocalizedDescriptionKey: "Custom LLM model is not installed locally."]
-            )
-        }
+        return try await withActiveInference {
+            guard isModelDownloaded(repo: modelRepo) else {
+                throw NSError(
+                    domain: "Voxt.CustomLLM",
+                    code: 404,
+                    userInfo: [NSLocalizedDescriptionKey: "Custom LLM model is not installed locally."]
+                )
+            }
 
-        let container = try await container(for: modelRepo)
-        let session = ChatSession(container, instructions: instructions)
-        let params = generationParameters(for: .translation, inputLength: text.count)
-        session.generateParameters = params
-        let prompt = structuredOutputPrompt(
-            taskInstruction: "Process the input according to the instructions.",
-            input: text
-        )
-        let startedAt = Date()
-        VoxtLog.llm(
-            "Custom LLM translate started. repo=\(modelRepo), inputChars=\(text.count), maxTokens=\(params.maxTokens ?? 0), temperature=\(params.temperature), topP=\(params.topP)"
-        )
-        VoxtLog.llm(
-            """
-            Custom LLM translate content. repo=\(modelRepo)
-            [system_prompt]
-            \(VoxtLog.llmPreview(instructions))
-            [input]
-            \(VoxtLog.llmPreview(text))
-            [request_content]
-            \(VoxtLog.llmPreview(prompt))
-            """
-        )
-        let response = try await session.respond(to: modelPrompt(prompt, repo: modelRepo))
-        let elapsedMs = Int(Date().timeIntervalSince(startedAt) * 1000)
-        let result = extractResultText(response)
-        VoxtLog.llm(
-            "Custom LLM translate completed. repo=\(modelRepo), outputChars=\(result.count), elapsedMs=\(elapsedMs)"
-        )
-        VoxtLog.llm(
-            """
-            Custom LLM translate output. repo=\(modelRepo)
-            [output]
-            \(VoxtLog.llmPreview(result))
-            """
-        )
-        return result
+            let container = try await container(for: modelRepo)
+            let session = ChatSession(container, instructions: instructions)
+            let params = generationParameters(for: .translation, inputLength: text.count)
+            session.generateParameters = params
+            let prompt = structuredOutputPrompt(
+                taskInstruction: "Process the input according to the instructions.",
+                input: text
+            )
+            let startedAt = Date()
+            VoxtLog.llm(
+                "Custom LLM translate started. repo=\(modelRepo), inputChars=\(text.count), maxTokens=\(params.maxTokens ?? 0), temperature=\(params.temperature), topP=\(params.topP)"
+            )
+            VoxtLog.llm(
+                """
+                Custom LLM translate content. repo=\(modelRepo)
+                [system_prompt]
+                \(VoxtLog.llmPreview(instructions))
+                [input]
+                \(VoxtLog.llmPreview(text))
+                [request_content]
+                \(VoxtLog.llmPreview(prompt))
+                """
+            )
+            let response = try await session.respond(to: modelPrompt(prompt, repo: modelRepo))
+            let elapsedMs = Int(Date().timeIntervalSince(startedAt) * 1000)
+            let result = extractResultText(response)
+            VoxtLog.llm(
+                "Custom LLM translate completed. repo=\(modelRepo), outputChars=\(result.count), elapsedMs=\(elapsedMs)"
+            )
+            VoxtLog.llm(
+                """
+                Custom LLM translate output. repo=\(modelRepo)
+                [output]
+                \(VoxtLog.llmPreview(result))
+                """
+            )
+            return result
+        }
     }
 
     private func runRewritePrompt(
@@ -363,58 +370,60 @@ class CustomLLMModelManager: ObservableObject {
         instructions: String,
         modelRepo: String
     ) async throws -> String {
-        guard isModelDownloaded(repo: modelRepo) else {
-            throw NSError(
-                domain: "Voxt.CustomLLM",
-                code: 404,
-                userInfo: [NSLocalizedDescriptionKey: "Custom LLM model is not installed locally."]
+        return try await withActiveInference {
+            guard isModelDownloaded(repo: modelRepo) else {
+                throw NSError(
+                    domain: "Voxt.CustomLLM",
+                    code: 404,
+                    userInfo: [NSLocalizedDescriptionKey: "Custom LLM model is not installed locally."]
+                )
+            }
+
+            let container = try await container(for: modelRepo)
+            let session = ChatSession(container, instructions: instructions)
+            let combinedInput = """
+            Spoken instruction:
+            \(dictatedPrompt)
+
+            Selected source text:
+            \(sourceText)
+            """
+            let params = generationParameters(for: .rewrite, inputLength: combinedInput.count)
+            session.generateParameters = params
+            let prompt = structuredOutputPrompt(
+                taskInstruction: "Produce the final text to insert according to the instructions.",
+                input: combinedInput
             )
+            let startedAt = Date()
+            VoxtLog.llm(
+                "Custom LLM rewrite started. repo=\(modelRepo), instructionChars=\(dictatedPrompt.count), sourceChars=\(sourceText.count), maxTokens=\(params.maxTokens ?? 0), temperature=\(params.temperature), topP=\(params.topP)"
+            )
+            VoxtLog.llm(
+                """
+                Custom LLM rewrite content. repo=\(modelRepo)
+                [system_prompt]
+                \(VoxtLog.llmPreview(instructions))
+                [input]
+                \(VoxtLog.llmPreview(combinedInput))
+                [request_content]
+                \(VoxtLog.llmPreview(prompt))
+                """
+            )
+            let response = try await session.respond(to: modelPrompt(prompt, repo: modelRepo))
+            let elapsedMs = Int(Date().timeIntervalSince(startedAt) * 1000)
+            let result = extractResultText(response)
+            VoxtLog.llm(
+                "Custom LLM rewrite completed. repo=\(modelRepo), outputChars=\(result.count), elapsedMs=\(elapsedMs)"
+            )
+            VoxtLog.llm(
+                """
+                Custom LLM rewrite output. repo=\(modelRepo)
+                [output]
+                \(VoxtLog.llmPreview(result))
+                """
+            )
+            return result
         }
-
-        let container = try await container(for: modelRepo)
-        let session = ChatSession(container, instructions: instructions)
-        let combinedInput = """
-        Spoken instruction:
-        \(dictatedPrompt)
-
-        Selected source text:
-        \(sourceText)
-        """
-        let params = generationParameters(for: .rewrite, inputLength: combinedInput.count)
-        session.generateParameters = params
-        let prompt = structuredOutputPrompt(
-            taskInstruction: "Produce the final text to insert according to the instructions.",
-            input: combinedInput
-        )
-        let startedAt = Date()
-        VoxtLog.llm(
-            "Custom LLM rewrite started. repo=\(modelRepo), instructionChars=\(dictatedPrompt.count), sourceChars=\(sourceText.count), maxTokens=\(params.maxTokens ?? 0), temperature=\(params.temperature), topP=\(params.topP)"
-        )
-        VoxtLog.llm(
-            """
-            Custom LLM rewrite content. repo=\(modelRepo)
-            [system_prompt]
-            \(VoxtLog.llmPreview(instructions))
-            [input]
-            \(VoxtLog.llmPreview(combinedInput))
-            [request_content]
-            \(VoxtLog.llmPreview(prompt))
-            """
-        )
-        let response = try await session.respond(to: modelPrompt(prompt, repo: modelRepo))
-        let elapsedMs = Int(Date().timeIntervalSince(startedAt) * 1000)
-        let result = extractResultText(response)
-        VoxtLog.llm(
-            "Custom LLM rewrite completed. repo=\(modelRepo), outputChars=\(result.count), elapsedMs=\(elapsedMs)"
-        )
-        VoxtLog.llm(
-            """
-            Custom LLM rewrite output. repo=\(modelRepo)
-            [output]
-            \(VoxtLog.llmPreview(result))
-            """
-        )
-        return result
     }
 
     private func generationParameters(for kind: LocalTaskKind, inputLength: Int) -> GenerateParameters {
@@ -467,9 +476,12 @@ class CustomLLMModelManager: ObservableObject {
             VoxtLog.warning("Unsupported custom LLM repo '\(repo)' requested. Falling back to \(sanitizedRepo).")
         }
         VoxtLog.info("Custom LLM model changed: \(modelRepo) -> \(sanitizedRepo)")
+        cancelIdleUnloadTask()
         modelRepo = sanitizedRepo
         inferenceContainer = nil
         inferenceModelRepo = nil
+        activeInferenceCount = 0
+        Memory.clearCache()
         lastLoggedModelPresence = nil
         lastInvalidRepoLogged = nil
         checkExistingModel()
@@ -714,8 +726,11 @@ class CustomLLMModelManager: ObservableObject {
             try? FileManager.default.removeItem(at: modelDir)
         }
         if repo == inferenceModelRepo {
+            cancelIdleUnloadTask()
             inferenceContainer = nil
             inferenceModelRepo = nil
+            activeInferenceCount = 0
+            Memory.clearCache()
         }
         if repo == modelRepo {
             state = .notDownloaded
@@ -988,5 +1003,59 @@ class CustomLLMModelManager: ObservableObject {
         let metadataDir = cache.metadataDirectory(repo: repoID, kind: .model)
         try? FileManager.default.removeItem(at: repoDir)
         try? FileManager.default.removeItem(at: metadataDir)
+    }
+
+    private func withActiveInference<T>(
+        _ operation: () async throws -> T
+    ) async throws -> T {
+        beginActiveInference()
+        defer { endActiveInference() }
+        return try await operation()
+    }
+
+    private func beginActiveInference() {
+        activeInferenceCount += 1
+        cancelIdleUnloadTask()
+    }
+
+    private func endActiveInference() {
+        activeInferenceCount = max(0, activeInferenceCount - 1)
+        guard activeInferenceCount == 0 else { return }
+        Memory.clearCache()
+        scheduleIdleUnloadIfNeeded()
+    }
+
+    private func scheduleIdleUnloadIfNeeded() {
+        guard inferenceContainer != nil else { return }
+        idleUnloadTask?.cancel()
+        let expectedRepo = inferenceModelRepo
+        let delay = idleUnloadDelay
+        idleUnloadTask = Task { [weak self] in
+            do {
+                try await Task.sleep(for: delay)
+            } catch {
+                return
+            }
+            guard let self else { return }
+            await MainActor.run {
+                self.unloadInferenceContainerIfIdle(expectedRepo: expectedRepo)
+            }
+        }
+    }
+
+    private func cancelIdleUnloadTask() {
+        idleUnloadTask?.cancel()
+        idleUnloadTask = nil
+    }
+
+    private func unloadInferenceContainerIfIdle(expectedRepo: String?) {
+        guard activeInferenceCount == 0 else { return }
+        guard inferenceContainer != nil, inferenceModelRepo == expectedRepo else { return }
+
+        inferenceContainer = nil
+        inferenceModelRepo = nil
+        idleUnloadTask = nil
+        Memory.clearCache()
+        VoxtLog.info("Custom LLM model released after idle period.", verbose: true)
     }
 }
