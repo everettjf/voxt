@@ -14,21 +14,29 @@ struct HotkeyModifierInterpreter {
     static func translationTriggerDown(
         keyCode: UInt16,
         comboIsDown: Bool,
+        eventFlags: CGEventFlags,
         translationFlags: CGEventFlags
     ) -> Bool {
         let isFnOnlyHotkey = translationFlags == .maskSecondaryFn
-        let fnPressedForModifierHotkey = isFnOnlyHotkey && isFunctionKeyEvent(keyCode)
+        let fnPressedForModifierHotkey =
+            isFnOnlyHotkey &&
+            isFunctionKeyEvent(keyCode) &&
+            eventFlags.contains(.maskSecondaryFn)
         return comboIsDown || fnPressedForModifierHotkey
     }
 
     static func transcriptionTriggerDown(
         keyCode: UInt16,
         comboIsDown: Bool,
+        eventFlags: CGEventFlags,
         transcriptionFlags: CGEventFlags
     ) -> Bool {
         let isFnOnlyHotkey = transcriptionFlags == .maskSecondaryFn
         // For fn-only hotkey, some keyboards report keyCode=Function with flags jitter.
-        let fnPressedForModifierHotkey = isFnOnlyHotkey && isFunctionKeyEvent(keyCode)
+        let fnPressedForModifierHotkey =
+            isFnOnlyHotkey &&
+            isFunctionKeyEvent(keyCode) &&
+            eventFlags.contains(.maskSecondaryFn)
         return comboIsDown || fnPressedForModifierHotkey
     }
 

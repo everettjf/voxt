@@ -3,7 +3,9 @@ import SwiftUI
 struct WaveformAnswerCard: View {
     let title: String
     let content: String
+    let canInjectAnswer: Bool
     let didCopyAnswer: Bool
+    let onInject: () -> Void
     let onCopy: () -> Void
     let onClose: () -> Void
 
@@ -26,8 +28,19 @@ struct WaveformAnswerCard: View {
 
                 Spacer(minLength: 12)
 
+                if canInjectAnswer {
+                    AnswerHeaderActionButton(
+                        accessibilityLabel: String(localized: "Inject into Current Input"),
+                        action: onInject
+                    ) {
+                        Image(systemName: "arrow.down.to.line.compact")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(.white.opacity(0.9))
+                    }
+                }
+
                 AnswerHeaderActionButton(
-                    accessibilityLabel: String(localized: "Copy"),
+                    accessibilityLabel: String(localized: "Copy Answer"),
                     action: onCopy
                 ) {
                     if didCopyAnswer {

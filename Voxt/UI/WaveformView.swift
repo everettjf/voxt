@@ -10,9 +10,12 @@ struct WaveformView: View {
     var transcribedText: String
     var statusMessage: String = ""
     var isEnhancing: Bool = false
+    var isRequesting: Bool = false
     var isCompleting: Bool = false
     var answerTitle: String = ""
     var answerContent: String = ""
+    var canInjectAnswer: Bool = false
+    var onInject: () -> Void = {}
     var onClose: () -> Void = {}
 
     private let iconSlotSize = CGSize(width: 16, height: 28)
@@ -37,6 +40,7 @@ struct WaveformView: View {
     private var isCompact: Bool { !hasText && !isAnswerMode }
     private var cornerRadius: CGFloat { isAnswerMode ? 28 : (isCompact ? 24 : 20) }
     private var textOverflows: Bool { displayText.count > 38 }
+    private var showsLoadingSpinner: Bool { isEnhancing || isRequesting }
 
     var body: some View {
         Group {
@@ -72,19 +76,11 @@ struct WaveformView: View {
     private var compactCard: some View {
         VStack(spacing: isCompact ? 0 : 8) {
             HStack(spacing: 10) {
-                if isCompleting {
-                    Image(systemName: "checkmark.circle.fill")
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(.white.opacity(0.95))
-                        .frame(width: iconSlotSize.width, height: iconSlotSize.height)
-                        .transition(.opacity)
-                } else {
-                    compactModeIcon
-                        .frame(width: iconSlotSize.width, height: iconSlotSize.height)
-                        .transition(.opacity)
-                }
+                leadingStatusIcon
+                    .frame(width: iconSlotSize.width, height: iconSlotSize.height, alignment: .center)
+                    .transition(.opacity)
 
-                if isEnhancing {
+                if showsLoadingSpinner {
                     processingBars
                         .transition(.opacity)
                 } else {
@@ -93,7 +89,7 @@ struct WaveformView: View {
                 }
             }
             .frame(height: barAreaHeight)
-            .animation(.easeInOut(duration: 0.25), value: isEnhancing)
+            .animation(.easeInOut(duration: 0.25), value: showsLoadingSpinner)
 
             if hasText {
                 ScrollViewReader { proxy in
@@ -141,10 +137,25 @@ struct WaveformView: View {
         WaveformAnswerCard(
             title: answerTitle,
             content: answerContent,
+            canInjectAnswer: canInjectAnswer,
             didCopyAnswer: didCopyAnswer,
+            onInject: onInject,
             onCopy: copyAnswerToPasteboard,
             onClose: onClose
         )
+    }
+
+    @ViewBuilder
+    private var leadingStatusIcon: some View {
+        if isCompleting {
+            Image(systemName: "checkmark.circle.fill")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(.white.opacity(0.95))
+                .frame(width: 14, height: 14, alignment: .center)
+        } else {
+            compactModeIcon
+                .frame(width: 14, height: 14, alignment: .center)
+        }
     }
 
     private var cardBackground: some View {
@@ -267,19 +278,24 @@ struct WaveformView: View {
 
     @ViewBuilder
     private var compactModeIcon: some View {
-        switch sessionIconMode {
-        case .transcription:
-            TranscriptionModeIconView()
-                .frame(width: 16, height: 16)
-                .opacity(0.92)
-        case .translation:
-            TranslationModeIconView()
-                .frame(width: 16, height: 16)
-                .opacity(0.92)
-        case .rewrite:
-            RewriteModeIconView()
-                .frame(width: 16, height: 16)
-                .opacity(0.92)
+        if showsLoadingSpinner {
+            LoadingSpinnerIconView()
+                .frame(width: 14, height: 14)
+        } else {
+            switch sessionIconMode {
+            case .transcription:
+                TranscriptionModeIconView()
+                    .frame(width: 14, height: 14)
+                    .opacity(0.92)
+            case .translation:
+                TranslationModeIconView()
+                    .frame(width: 14, height: 14)
+                    .opacity(0.92)
+            case .rewrite:
+                RewriteModeIconView()
+                    .frame(width: 14, height: 14)
+                    .opacity(0.92)
+            }
         }
     }
 

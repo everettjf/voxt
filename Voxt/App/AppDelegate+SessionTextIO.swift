@@ -297,14 +297,7 @@ extension AppDelegate {
     }
 
     func shouldPresentRewriteAnswerOverlay(hasSelectedSourceText: Bool) -> Bool {
-        guard sessionOutputMode == .rewrite, !hasSelectedSourceText else { return false }
-        if alwaysShowRewriteAnswerCard {
-            return true
-        }
-        if rewriteSessionHadWritableFocusedInput {
-            return false
-        }
-        return !hasWritableFocusedTextInput()
+        sessionOutputMode == .rewrite && !hasSelectedSourceText
     }
 
     private func resolvedAnswerPayload(for context: SessionFinalizeContext) -> RewriteAnswerPayload {
@@ -335,11 +328,26 @@ extension AppDelegate {
             writeTextToPasteboard(trimmedContent)
         }
 
+        overlayWindow.onRequestInject = { [weak self] in
+            Task { @MainActor [weak self] in
+                self?.injectAnswerOverlayContent()
+            }
+        }
+        let liveHasWritableFocusedInput = hasWritableFocusedTextInput()
+        let hasFallbackInjectTarget = rewriteSessionFallbackInjectBundleID != nil
+        let canInjectIntoFocusedInput =
+            rewriteSessionHadWritableFocusedInput ||
+            liveHasWritableFocusedInput ||
+            hasFallbackInjectTarget
+        VoxtLog.info(
+            "Rewrite answer overlay inject check. sessionHadWritableFocusedInput=\(rewriteSessionHadWritableFocusedInput), liveHasWritableFocusedInput=\(liveHasWritableFocusedInput), fallbackBundleID=\(rewriteSessionFallbackInjectBundleID ?? "nil"), canInject=\(canInjectIntoFocusedInput)"
+        )
         overlayState.presentAnswer(
             title: title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                 ? String(localized: "AI Answer")
                 : title,
-            content: trimmedContent
+            content: trimmedContent,
+            canInject: canInjectIntoFocusedInput
         )
         overlayWindow.show(state: overlayState, position: overlayPosition)
     }
@@ -348,8 +356,17 @@ extension AppDelegate {
         guard overlayState.displayMode == .answer else { return }
         overlayWindow.hide { [weak self] in
             guard let self else { return }
+            self.overlayWindow.onRequestInject = nil
             self.overlayState.reset()
         }
+    }
+
+    func injectAnswerOverlayContent() {
+        let trimmed = overlayState.answerContent.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        guard overlayState.canInjectAnswer else { return }
+        VoxtLog.info("Rewrite answer inject requested. chars=\(trimmed.count), canInject=\(overlayState.canInjectAnswer)")
+        typeText(trimmed)
     }
 
     func extractRewriteAnswerPayload(from text: String) -> RewriteAnswerPayload? {
@@ -502,9 +519,31 @@ extension AppDelegate {
     }
 
     func hasWritableFocusedTextInput() -> Bool {
-        guard let focusedElement = focusedAXElement() else { return false }
+        guard let focusedElement = focusedAXElement() else {
+            VoxtLog.info("Focused input check: no focused AX element.")
+            return false
+        }
 
-        if axBoolAttribute("AXEditable" as CFString, for: focusedElement) == true {
+        if let writableElement = writableTextInputElement(from: focusedElement) {
+            let role = axStringAttribute(kAXRoleAttribute as CFString, for: writableElement) ?? "unknown"
+            let editable = axBoolAttribute("AXEditable" as CFString, for: writableElement) == true
+            var isSettable = DarwinBoolean(false)
+            let settableStatus = AXUIElementIsAttributeSettable(
+                writableElement,
+                kAXValueAttribute as CFString,
+                &isSettable
+            )
+            let valueSettable = settableStatus == .success && isSettable.boolValue
+            VoxtLog.info(
+                "Focused input check: writable descendant detected. role=\(role), editable=\(editable), valueSettable=\(valueSettable)"
+            )
+            return true
+        }
+
+        let editable = axBoolAttribute("AXEditable" as CFString, for: focusedElement)
+        if editable == true {
+            let role = axStringAttribute(kAXRoleAttribute as CFString, for: focusedElement) ?? "unknown"
+            VoxtLog.info("Focused input check: editable AX element detected. role=\(role)")
             return true
         }
 
@@ -515,10 +554,15 @@ extension AppDelegate {
             &isSettable
         )
         if settableStatus == .success, isSettable.boolValue {
+            let role = axStringAttribute(kAXRoleAttribute as CFString, for: focusedElement) ?? "unknown"
+            VoxtLog.info("Focused input check: settable AX value detected. role=\(role)")
             return true
         }
 
         guard let role = axStringAttribute(kAXRoleAttribute as CFString, for: focusedElement) else {
+            VoxtLog.info(
+                "Focused input check: role unavailable. editable=\(editable == true), valueSettable=\(isSettable.boolValue)"
+            )
             return false
         }
 
@@ -528,11 +572,18 @@ extension AppDelegate {
             "AXSearchField",
             kAXComboBoxRole as String
         ]
-        return writableRoles.contains(role)
+        let isWritable = writableRoles.contains(role)
+        VoxtLog.info(
+            "Focused input check: role=\(role), editable=\(editable == true), valueSettable=\(isSettable.boolValue), result=\(isWritable)"
+        )
+        return isWritable
     }
 
     private func focusedAXElement() -> AXUIElement? {
-        guard AccessibilityPermissionManager.isTrusted() else { return nil }
+        guard AccessibilityPermissionManager.isTrusted() else {
+            VoxtLog.info("Focused input check: accessibility not trusted.")
+            return nil
+        }
 
         let systemWide = AXUIElementCreateSystemWide()
         var focusedElementRef: CFTypeRef?
@@ -541,13 +592,40 @@ extension AppDelegate {
             kAXFocusedUIElementAttribute as CFString,
             &focusedElementRef
         )
-        guard focusedStatus == .success,
-              let focusedElementRef,
-              CFGetTypeID(focusedElementRef) == AXUIElementGetTypeID()
-        else {
+        if focusedStatus == .success,
+           let focusedElementRef,
+           CFGetTypeID(focusedElementRef) == AXUIElementGetTypeID() {
+            return unsafeBitCast(focusedElementRef, to: AXUIElement.self)
+        }
+
+        let bundleID = NSWorkspace.shared.frontmostApplication?.bundleIdentifier ?? "unknown"
+        VoxtLog.info(
+            "Focused input check: system-wide focused element unavailable. status=\(focusedStatus.rawValue), bundleID=\(bundleID)"
+        )
+
+        guard let appPID = NSWorkspace.shared.frontmostApplication?.processIdentifier else {
+            VoxtLog.info("Focused input check: no frontmost application PID.")
             return nil
         }
-        return unsafeBitCast(focusedElementRef, to: AXUIElement.self)
+
+        let appElement = AXUIElementCreateApplication(appPID)
+        if let focusedAppElement = axElementAttribute(kAXFocusedUIElementAttribute as CFString, for: appElement) {
+            VoxtLog.info("Focused input check: using frontmost app focused element. bundleID=\(bundleID)")
+            return focusedAppElement
+        }
+
+        guard let focusedWindow = axElementAttribute(kAXFocusedWindowAttribute as CFString, for: appElement) else {
+            VoxtLog.info("Focused input check: no focused window on frontmost app. bundleID=\(bundleID)")
+            return nil
+        }
+
+        if let focusedWindowElement = axElementAttribute(kAXFocusedUIElementAttribute as CFString, for: focusedWindow) {
+            VoxtLog.info("Focused input check: using focused window focused element. bundleID=\(bundleID)")
+            return focusedWindowElement
+        }
+
+        VoxtLog.info("Focused input check: falling back to focused window element. bundleID=\(bundleID)")
+        return focusedWindow
     }
 
     private func axBoolAttribute(_ attribute: CFString, for element: AXUIElement) -> Bool? {
@@ -568,6 +646,84 @@ extension AppDelegate {
         let status = AXUIElementCopyAttributeValue(element, attribute, &valueRef)
         guard status == .success else { return nil }
         return valueRef as? String
+    }
+
+    private func axElementAttribute(_ attribute: CFString, for element: AXUIElement) -> AXUIElement? {
+        var valueRef: CFTypeRef?
+        let status = AXUIElementCopyAttributeValue(element, attribute, &valueRef)
+        guard status == .success,
+              let valueRef,
+              CFGetTypeID(valueRef) == AXUIElementGetTypeID()
+        else {
+            return nil
+        }
+        return unsafeBitCast(valueRef, to: AXUIElement.self)
+    }
+
+    private func axElementArrayAttribute(_ attribute: CFString, for element: AXUIElement) -> [AXUIElement] {
+        var valueRef: CFTypeRef?
+        let status = AXUIElementCopyAttributeValue(element, attribute, &valueRef)
+        guard status == .success,
+              let valueRef,
+              let array = valueRef as? [Any]
+        else {
+            return []
+        }
+
+        return array.compactMap { item in
+            let cfItem = item as AnyObject
+            guard CFGetTypeID(cfItem) == AXUIElementGetTypeID() else { return nil }
+            return unsafeBitCast(cfItem, to: AXUIElement.self)
+        }
+    }
+
+    private func writableTextInputElement(from element: AXUIElement, depth: Int = 0) -> AXUIElement? {
+        guard depth <= 5 else { return nil }
+
+        if isWritableTextInputElement(element) {
+            return element
+        }
+
+        if let focusedChild = axElementAttribute(kAXFocusedUIElementAttribute as CFString, for: element),
+           let writableFocusedChild = writableTextInputElement(from: focusedChild, depth: depth + 1) {
+            return writableFocusedChild
+        }
+
+        for child in axElementArrayAttribute(kAXChildrenAttribute as CFString, for: element) {
+            if let writableChild = writableTextInputElement(from: child, depth: depth + 1) {
+                return writableChild
+            }
+        }
+
+        return nil
+    }
+
+    private func isWritableTextInputElement(_ element: AXUIElement) -> Bool {
+        if axBoolAttribute("AXEditable" as CFString, for: element) == true {
+            return true
+        }
+
+        var isSettable = DarwinBoolean(false)
+        let settableStatus = AXUIElementIsAttributeSettable(
+            element,
+            kAXValueAttribute as CFString,
+            &isSettable
+        )
+        if settableStatus == .success, isSettable.boolValue {
+            return true
+        }
+
+        guard let role = axStringAttribute(kAXRoleAttribute as CFString, for: element) else {
+            return false
+        }
+
+        let writableRoles: Set<String> = [
+            kAXTextAreaRole as String,
+            kAXTextFieldRole as String,
+            "AXSearchField",
+            kAXComboBoxRole as String
+        ]
+        return writableRoles.contains(role)
     }
 
     private func typeText(_ text: String) {

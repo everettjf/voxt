@@ -15,7 +15,6 @@ struct GeneralSettingsView: View {
     @AppStorage(AppPreferenceKey.userMainLanguageCodes) private var userMainLanguageCodesRaw = UserMainLanguageOption.defaultStoredSelectionValue
     @AppStorage(AppPreferenceKey.translateSelectedTextOnTranslationHotkey) private var translateSelectedTextOnTranslationHotkey = true
     @AppStorage(AppPreferenceKey.autoCopyWhenNoFocusedInput) private var autoCopyWhenNoFocusedInput = false
-    @AppStorage(AppPreferenceKey.alwaysShowRewriteAnswerCard) private var alwaysShowRewriteAnswerCard = false
     @AppStorage(AppPreferenceKey.appEnhancementEnabled) private var appEnhancementEnabled = false
     @AppStorage(AppPreferenceKey.launchAtLogin) private var launchAtLogin = false
     @AppStorage(AppPreferenceKey.showInDock) private var showInDock = false
@@ -142,7 +141,6 @@ struct GeneralSettingsView: View {
 
             GeneralOutputCard(
                 autoCopyWhenNoFocusedInput: $autoCopyWhenNoFocusedInput,
-                alwaysShowRewriteAnswerCard: $alwaysShowRewriteAnswerCard,
                 translateSelectedTextOnTranslationHotkey: $translateSelectedTextOnTranslationHotkey,
                 appEnhancementEnabled: $appEnhancementEnabled
             )

@@ -22,12 +22,23 @@ extension AppDelegate {
         sessionOutputMode = outputMode
         enhancementContextSnapshot = nil
         rewriteSessionHasSelectedSourceText = false
+        let frontmostBundleID = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
         rewriteSessionHadWritableFocusedInput = outputMode == .rewrite ? hasWritableFocusedTextInput() : false
+        rewriteSessionFallbackInjectBundleID =
+            outputMode == .rewrite ? fallbackInjectBundleID(from: frontmostBundleID) : nil
         resetVoiceEndCommandState()
 
         VoxtLog.info(
             "Recording started. output=\(sessionOutputLabel(for: outputMode)), engine=\(transcriptionEngine.rawValue)"
         )
+        if outputMode == .rewrite {
+            VoxtLog.info(
+                "Rewrite focused input check at session start. hasWritableFocusedInput=\(rewriteSessionHadWritableFocusedInput)"
+            )
+            VoxtLog.info(
+                "Rewrite fallback inject target at session start. frontmostBundleID=\(frontmostBundleID ?? "nil"), fallbackBundleID=\(rewriteSessionFallbackInjectBundleID ?? "nil")"
+            )
+        }
 
         applyPreferredInputDevice()
         overlayState.reset()
@@ -218,6 +229,16 @@ extension AppDelegate {
         }
     }
 
+    private func fallbackInjectBundleID(from bundleID: String?) -> String? {
+        guard let bundleID,
+              let ownBundleID = Bundle.main.bundleIdentifier,
+              bundleID != ownBundleID
+        else {
+            return nil
+        }
+        return bundleID
+    }
+
     func startPauseLLMIfNeeded() {
         runPauseEnhancementIfNeeded()
     }
@@ -304,6 +325,7 @@ extension AppDelegate {
         mlxTranscriber = mlx
         let sessionID = activeRecordingSessionID
         overlayState.statusMessage = ""
+        mlx.transcribedText = ""
         mlx.setPreferredInputDevice(selectedInputDeviceID)
         mlx.onTranscriptionFinished = { [weak self] text in
             self?.processTranscription(text, sessionID: sessionID)
@@ -335,6 +357,7 @@ extension AppDelegate {
 
             self.overlayState.statusMessage = ""
             let sessionID = self.activeRecordingSessionID
+            self.speechTranscriber.transcribedText = ""
             self.speechTranscriber.onTranscriptionFinished = { [weak self] text in
                 self?.processTranscription(text, sessionID: sessionID)
             }
@@ -366,6 +389,7 @@ extension AppDelegate {
 
             self.overlayState.statusMessage = ""
             let sessionID = self.activeRecordingSessionID
+            self.remoteASRTranscriber.transcribedText = ""
             self.remoteASRTranscriber.onTranscriptionFinished = { [weak self] text in
                 self?.processTranscription(text, sessionID: sessionID)
             }

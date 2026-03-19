@@ -44,6 +44,8 @@
 "Copy to clipboard when no focused input" = "入力フォーカスがない場合はクリップボードへコピー";
 "Always copy result to clipboard" = "結果を常にクリップボードへコピー";
 "AI Answer" = "AI 回答";
+"Copy Answer" = "回答をコピー";
+"Inject into Current Input" = "現在の入力欄に挿入";
 "Also copy result to clipboard" = "結果を同時にクリップボードへコピー";
 "App Behavior" = "アプリ動作";
 "Launch at Login" = "ログイン時に起動";

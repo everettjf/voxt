@@ -44,6 +44,7 @@ extension AppDelegate {
             delegate.enhancementContextSnapshot = nil
             delegate.rewriteSessionHasSelectedSourceText = false
             delegate.rewriteSessionHadWritableFocusedInput = false
+            delegate.rewriteSessionFallbackInjectBundleID = nil
             delegate.overlayState.isCompleting = false
             if delegate.overlayState.displayMode != .answer {
                 delegate.overlayState.reset()

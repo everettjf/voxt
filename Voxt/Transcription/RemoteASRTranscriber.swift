@@ -27,6 +27,7 @@ class RemoteASRTranscriber: NSObject, ObservableObject, TranscriberProtocol {
     @Published var audioLevel: Float = 0.0
     @Published var transcribedText = ""
     @Published var isEnhancing = false
+    @Published var isRequesting = false
 
     var onTranscriptionFinished: ((String) -> Void)?
 
@@ -57,6 +58,7 @@ class RemoteASRTranscriber: NSObject, ObservableObject, TranscriberProtocol {
         cleanupAliyunStreamingState()
         transcribedText = ""
         audioLevel = 0
+        isRequesting = false
         stopRequested = false
         let provider = selectedProvider
         let configuration = selectedProviderConfiguration(for: provider)
@@ -112,6 +114,7 @@ class RemoteASRTranscriber: NSObject, ObservableObject, TranscriberProtocol {
         stopRequested = true
 
         if activeProvider == .doubaoASR, let context = doubaoStreamingContext {
+            isRequesting = true
             stopDoubaoStreaming(context)
             scheduleStreamingCompletion {
                 let finalText = await self.resolveStreamingResult(
@@ -128,6 +131,7 @@ class RemoteASRTranscriber: NSObject, ObservableObject, TranscriberProtocol {
         }
 
         if activeProvider == .aliyunBailianASR, let context = aliyunStreamingContext {
+            isRequesting = true
             stopAliyunFunStreaming(context)
             scheduleStreamingCompletion {
                 await self.resolveStreamingResult(
@@ -142,6 +146,7 @@ class RemoteASRTranscriber: NSObject, ObservableObject, TranscriberProtocol {
         }
 
         if activeProvider == .aliyunBailianASR, let context = aliyunQwenStreamingContext {
+            isRequesting = true
             stopAliyunQwenStreaming(context)
             scheduleStreamingCompletion {
                 await self.resolveStreamingResult(
@@ -160,6 +165,7 @@ class RemoteASRTranscriber: NSObject, ObservableObject, TranscriberProtocol {
             return
         }
 
+        isRequesting = true
         transcribeTask = Task { [weak self] in
             guard let self else { return }
             do {
@@ -2360,6 +2366,7 @@ class RemoteASRTranscriber: NSObject, ObservableObject, TranscriberProtocol {
         transcribeTask?.cancel()
         transcribeTask = nil
         stopOpenAIPreviewLoop()
+        isRequesting = false
     }
 
     private func startOpenAIPreviewLoop(configuration: RemoteProviderConfiguration) {

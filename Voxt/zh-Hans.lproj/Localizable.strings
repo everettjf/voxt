@@ -44,6 +44,8 @@
 "Copy to clipboard when no focused input" = "无聚焦输入框时复制到剪贴板";
 "Always copy result to clipboard" = "始终复制结果到剪贴板";
 "AI Answer" = "AI 回答";
+"Copy Answer" = "复制答案";
+"Inject into Current Input" = "注入到当前输入框";
 "Also copy result to clipboard" = "同时复制结果到剪贴板";
 "App Behavior" = "应用行为";
 "Launch at Login" = "开机启动";

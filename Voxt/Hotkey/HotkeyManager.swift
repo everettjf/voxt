@@ -29,9 +29,15 @@ class HotkeyManager {
     private var activeTranslationKeyCode: UInt16?
     private var isRewriteKeyDown = false
     private var activeRewriteKeyCode: UInt16?
+    private var hasTranscriptionModifierTapCandidate = false
+    private var hasTranslationModifierTapCandidate = false
+    private var hasRewriteModifierTapCandidate = false
+    private var sawNonModifierKeyDuringFunctionChord = false
     private var currentSidedModifiers: SidedModifierFlags = []
     private var suppressTranscriptionTapUntil = Date.distantPast
     private var pendingTranscriptionTapTask: Task<Void, Never>?
+    private var pendingTranslationTapTask: Task<Void, Never>?
+    private var pendingRewriteTapTask: Task<Void, Never>?
     private var pendingTranscriptionLongPressReleaseTask: Task<Void, Never>?
     private var pendingTranslationLongPressReleaseTask: Task<Void, Never>?
     private var pendingRewriteLongPressReleaseTask: Task<Void, Never>?
@@ -93,9 +99,17 @@ class HotkeyManager {
         activeTranslationKeyCode = nil
         isRewriteKeyDown = false
         activeRewriteKeyCode = nil
+        hasTranscriptionModifierTapCandidate = false
+        hasTranslationModifierTapCandidate = false
+        hasRewriteModifierTapCandidate = false
+        sawNonModifierKeyDuringFunctionChord = false
         currentSidedModifiers = []
         pendingTranscriptionTapTask?.cancel()
         pendingTranscriptionTapTask = nil
+        pendingTranslationTapTask?.cancel()
+        pendingTranslationTapTask = nil
+        pendingRewriteTapTask?.cancel()
+        pendingRewriteTapTask = nil
         pendingTranscriptionLongPressReleaseTask?.cancel()
         pendingTranscriptionLongPressReleaseTask = nil
         pendingTranslationLongPressReleaseTask?.cancel()
@@ -186,6 +200,13 @@ class HotkeyManager {
         let rewriteFlags = HotkeyPreference.cgFlags(from: rewriteHotkey.modifiers)
         let wasTranslationKeyDown = isTranslationKeyDown
         let wasRewriteKeyDown = isRewriteKeyDown
+
+        if triggerMode == .tap, type == .keyDown, !isModifierKeyCode(keyCode) {
+            if flags.contains(.maskSecondaryFn) {
+                sawNonModifierKeyDuringFunctionChord = true
+            }
+            invalidateModifierOnlyTapCandidates(for: keyCode)
+        }
 
         if type == .flagsChanged,
            triggerMode == .tap,
@@ -401,23 +422,30 @@ class HotkeyManager {
         let translationTriggerDown = HotkeyModifierInterpreter.translationTriggerDown(
             keyCode: keyCode,
             comboIsDown: comboIsDown,
+            eventFlags: flags,
             translationFlags: translationFlags
         )
 
         if triggerMode == .tap {
             // Tap semantics:
-            // - Translation combo emits only "down" and acts as a start trigger.
+            // - Translation combo enters a candidate state on modifier press.
+            // - It triggers only when modifiers are released without any other key intervening.
             // - Stop action is centralized to transcription hotkey tap (fn) in AppDelegate.
             // - We still track combo-up to enter a short suppression window for fn stray events.
             if translationTriggerDown && !isTranslationKeyDown {
                 VoxtLog.info("Hotkey detect translation modifier combo down (tap).", verbose: true)
                 cancelPendingTranscriptionTap(resetKeyState: true)
                 isTranslationKeyDown = true
+                hasTranslationModifierTapCandidate = true
                 suppressTranscriptionTapUntil = Date().addingTimeInterval(0.35)
-                emitTranslationKeyDown()
             }
             if !comboIsDown && isTranslationKeyDown {
                 VoxtLog.info("Hotkey detect translation modifier combo up (tap).", verbose: true)
+                if hasTranslationModifierTapCandidate {
+                    VoxtLog.hotkey("Hotkey translation modifier tap confirmed on release.")
+                    emitTranslationKeyDown()
+                }
+                hasTranslationModifierTapCandidate = false
                 isTranslationKeyDown = false
                 // Small cooldown to absorb release-order jitter (shift up then fn up).
                 suppressTranscriptionTapUntil = Date().addingTimeInterval(0.20)
@@ -471,6 +499,7 @@ class HotkeyManager {
         let rewriteTriggerDown = HotkeyModifierInterpreter.translationTriggerDown(
             keyCode: keyCode,
             comboIsDown: comboIsDown,
+            eventFlags: flags,
             translationFlags: rewriteFlags
         )
 
@@ -479,11 +508,16 @@ class HotkeyManager {
                 VoxtLog.hotkey("Hotkey detect rewrite modifier combo down (tap).")
                 cancelPendingTranscriptionTap(resetKeyState: true)
                 isRewriteKeyDown = true
+                hasRewriteModifierTapCandidate = true
                 suppressTranscriptionTapUntil = Date().addingTimeInterval(0.35)
-                emitRewriteKeyDown()
             }
             if !comboIsDown && isRewriteKeyDown {
                 VoxtLog.hotkey("Hotkey detect rewrite modifier combo up (tap).")
+                if hasRewriteModifierTapCandidate {
+                    VoxtLog.hotkey("Hotkey rewrite modifier tap confirmed on release.")
+                    emitRewriteKeyDown()
+                }
+                hasRewriteModifierTapCandidate = false
                 isRewriteKeyDown = false
                 suppressTranscriptionTapUntil = Date().addingTimeInterval(0.20)
             }
@@ -557,46 +591,23 @@ class HotkeyManager {
         let transcriptionTriggerDown = HotkeyModifierInterpreter.transcriptionTriggerDown(
             keyCode: keyCode,
             comboIsDown: comboIsDown,
+            eventFlags: flags,
             transcriptionFlags: transcriptionFlags
         )
 
         if triggerMode == .tap {
             // Tap semantics for modifier-only transcription hotkey:
-            // emit only "down" as a toggle signal; release transitions are ignored.
+            // enter candidate state on press and confirm only on release.
             // Translation cooldown check is critical for fn/fn+shift coexistence.
             if Date() < suppressTranscriptionTapUntil {
                 VoxtLog.info("Hotkey suppress transcription tap due to translation cooldown.", verbose: true)
                 cancelPendingTranscriptionTap(resetKeyState: true)
+                hasTranscriptionModifierTapCandidate = false
                 if !comboIsDown && isKeyDown {
                     isKeyDown = false
                 }
-                return true
-            }
-            let shouldDelayTap = shouldDelayTranscriptionTap(
-                transcriptionHotkey: transcriptionHotkey,
-                translationHotkey: translationHotkey,
-                rewriteHotkey: rewriteHotkey,
-                transcriptionFlags: transcriptionFlags,
-                translationFlags: translationFlags,
-                rewriteFlags: rewriteFlags
-            )
-            if shouldDelayTap {
-                // 80ms "combo disambiguation window":
-                // if shift arrives quickly, translation path takes over and fn tap is dropped.
-                if transcriptionTriggerDown && !isKeyDown {
-                    if flags.contains(translationFlags) || flags.contains(rewriteFlags) {
-                        VoxtLog.hotkey("Hotkey delay transcription tap aborted because higher-priority flags are active.")
-                        return true
-                    }
-                    isKeyDown = true
-                    VoxtLog.hotkey("Hotkey scheduling delayed transcription tap.")
-                    schedulePendingTranscriptionTap()
-                }
-                if !comboIsDown && isKeyDown {
-                    // In tap mode we flush immediately so quick fn press still toggles reliably.
-                    VoxtLog.hotkey("Hotkey releasing delayed transcription tap.")
-                    flushPendingTranscriptionTapIfNeeded()
-                    isKeyDown = false
+                if keyCode == UInt16(kVK_Function), !flags.contains(.maskSecondaryFn) {
+                    sawNonModifierKeyDuringFunctionChord = false
                 }
                 return true
             }
@@ -606,10 +617,33 @@ class HotkeyManager {
                     return true
                 }
                 isKeyDown = true
-                emitKeyDown()
+                hasTranscriptionModifierTapCandidate = true
+            }
+            let isFnOnlyTranscriptionHotkey = transcriptionFlags == .maskSecondaryFn
+            let isFunctionReleaseEvent =
+                isFnOnlyTranscriptionHotkey &&
+                keyCode == UInt16(kVK_Function) &&
+                !flags.contains(.maskSecondaryFn)
+            if isFunctionReleaseEvent && !isKeyDown {
+                if !sawNonModifierKeyDuringFunctionChord,
+                   !isTranslationKeyDown,
+                   !isRewriteKeyDown {
+                    VoxtLog.hotkey("Hotkey transcription fn-only tap confirmed on release without non-modifier key.")
+                    emitKeyDown()
+                }
+                sawNonModifierKeyDuringFunctionChord = false
+                return true
             }
             if !comboIsDown && isKeyDown {
+                if hasTranscriptionModifierTapCandidate {
+                    VoxtLog.hotkey("Hotkey transcription modifier tap confirmed on release.")
+                    emitKeyDown()
+                }
+                hasTranscriptionModifierTapCandidate = false
                 isKeyDown = false
+                if keyCode == UInt16(kVK_Function), !flags.contains(.maskSecondaryFn) {
+                    sawNonModifierKeyDuringFunctionChord = false
+                }
             }
             cancelPendingTranscriptionTap(resetKeyState: false)
             return true
@@ -646,23 +680,13 @@ class HotkeyManager {
             }
             guard let self else { return }
             guard !Task.isCancelled else { return }
-            guard self.isKeyDown, !self.isTranslationKeyDown else {
-                VoxtLog.info("Hotkey delayed transcription tap dropped. isKeyDown=\(self.isKeyDown), isTranslationKeyDown=\(self.isTranslationKeyDown)", verbose: true)
+            guard self.pendingTranscriptionTapTask != nil, !self.isTranslationKeyDown, !self.isRewriteKeyDown else {
+                VoxtLog.info("Hotkey delayed transcription tap dropped. pending=\(self.pendingTranscriptionTapTask != nil), isTranslationKeyDown=\(self.isTranslationKeyDown), isRewriteKeyDown=\(self.isRewriteKeyDown)", verbose: true)
                 return
             }
             self.pendingTranscriptionTapTask = nil
             VoxtLog.hotkey("Hotkey delayed transcription tap fired.")
             self.emitKeyDown()
-        }
-    }
-
-    private func flushPendingTranscriptionTapIfNeeded() {
-        guard pendingTranscriptionTapTask != nil else { return }
-        pendingTranscriptionTapTask?.cancel()
-        pendingTranscriptionTapTask = nil
-        if isKeyDown, !isTranslationKeyDown {
-            VoxtLog.hotkey("Hotkey delayed transcription tap flushed immediately.")
-            emitKeyDown()
         }
     }
 
@@ -672,6 +696,95 @@ class HotkeyManager {
         if resetKeyState {
             VoxtLog.hotkey("Hotkey delayed transcription tap canceled and key state reset.")
             isKeyDown = false
+        }
+    }
+
+    private func schedulePendingTranslationTap() {
+        pendingTranslationTapTask?.cancel()
+        pendingTranslationTapTask = Task { [weak self] in
+            do {
+                try await Task.sleep(for: .milliseconds(80))
+            } catch {
+                return
+            }
+            guard let self else { return }
+            guard !Task.isCancelled else { return }
+            guard self.pendingTranslationTapTask != nil else {
+                VoxtLog.hotkey("Hotkey delayed translation tap dropped.")
+                return
+            }
+            self.pendingTranslationTapTask = nil
+            VoxtLog.hotkey("Hotkey delayed translation tap fired.")
+            self.emitTranslationKeyDown()
+        }
+    }
+
+    private func cancelPendingTranslationTap(resetKeyState: Bool) {
+        pendingTranslationTapTask?.cancel()
+        pendingTranslationTapTask = nil
+        if resetKeyState {
+            VoxtLog.hotkey("Hotkey delayed translation tap canceled and key state reset.")
+            isTranslationKeyDown = false
+        }
+    }
+
+    private func schedulePendingRewriteTap() {
+        pendingRewriteTapTask?.cancel()
+        pendingRewriteTapTask = Task { [weak self] in
+            do {
+                try await Task.sleep(for: .milliseconds(80))
+            } catch {
+                return
+            }
+            guard let self else { return }
+            guard !Task.isCancelled else { return }
+            guard self.pendingRewriteTapTask != nil else {
+                VoxtLog.hotkey("Hotkey delayed rewrite tap dropped.")
+                return
+            }
+            self.pendingRewriteTapTask = nil
+            VoxtLog.hotkey("Hotkey delayed rewrite tap fired.")
+            self.emitRewriteKeyDown()
+        }
+    }
+
+    private func cancelPendingRewriteTap(resetKeyState: Bool) {
+        pendingRewriteTapTask?.cancel()
+        pendingRewriteTapTask = nil
+        if resetKeyState {
+            VoxtLog.hotkey("Hotkey delayed rewrite tap canceled and key state reset.")
+            isRewriteKeyDown = false
+        }
+    }
+
+    private func invalidateModifierOnlyTapCandidates(for keyCode: UInt16) {
+        let keyLabel = HotkeyPreference.keyCodeDisplayString(keyCode)
+        if hasTranscriptionModifierTapCandidate || hasTranslationModifierTapCandidate || hasRewriteModifierTapCandidate {
+            VoxtLog.hotkey("Hotkey invalidated modifier-only tap candidate because non-modifier key went down. key=\(keyLabel)")
+        }
+        cancelPendingTranscriptionTap(resetKeyState: true)
+        cancelPendingTranslationTap(resetKeyState: true)
+        cancelPendingRewriteTap(resetKeyState: true)
+        hasTranscriptionModifierTapCandidate = false
+        hasTranslationModifierTapCandidate = false
+        hasRewriteModifierTapCandidate = false
+    }
+
+    private func isModifierKeyCode(_ keyCode: UInt16) -> Bool {
+        switch Int(keyCode) {
+        case kVK_Command,
+             kVK_RightCommand,
+             kVK_Shift,
+             kVK_RightShift,
+             kVK_Option,
+             kVK_RightOption,
+             kVK_Control,
+             kVK_RightControl,
+             kVK_Function,
+             kVK_CapsLock:
+            return true
+        default:
+            return false
         }
     }
 

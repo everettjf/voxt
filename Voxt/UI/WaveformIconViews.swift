@@ -75,6 +75,26 @@ struct RewriteModeIconView: View {
     }
 }
 
+struct LoadingSpinnerIconView: View {
+    @State private var isRotating = false
+
+    var body: some View {
+        Circle()
+            .trim(from: 0.18, to: 0.88)
+            .stroke(
+                .white.opacity(0.95),
+                style: StrokeStyle(lineWidth: 1.8, lineCap: .round)
+            )
+            .rotationEffect(.degrees(isRotating ? 360 : 0))
+            .padding(1)
+            .onAppear {
+                withAnimation(.linear(duration: 0.9).repeatForever(autoreverses: false)) {
+                    isRotating = true
+                }
+            }
+    }
+}
+
 struct CopyIconView: View {
     var body: some View {
         ZStack {

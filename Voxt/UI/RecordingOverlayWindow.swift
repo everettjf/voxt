@@ -23,11 +23,13 @@ class OverlayState: ObservableObject {
     @Published var transcribedText = ""
     @Published var statusMessage = ""
     @Published var isEnhancing = false
+    @Published var isRequesting = false
     @Published var isCompleting = false
     @Published var displayMode: OverlayDisplayMode = .recording
     @Published var sessionIconMode: OverlaySessionIconMode = .transcription
     @Published var answerTitle = ""
     @Published var answerContent = ""
+    @Published var canInjectAnswer = false
 
     private var cancellables = Set<AnyCancellable>()
 
@@ -38,6 +40,7 @@ class OverlayState: ObservableObject {
         transcriber.$audioLevel.assign(to: &$audioLevel)
         transcriber.$transcribedText.assign(to: &$transcribedText)
         transcriber.$isEnhancing.assign(to: &$isEnhancing)
+        isRequesting = false
     }
 
     /// Binds to an MLXTranscriber's published properties.
@@ -47,6 +50,7 @@ class OverlayState: ObservableObject {
         transcriber.$audioLevel.assign(to: &$audioLevel)
         transcriber.$transcribedText.assign(to: &$transcribedText)
         transcriber.$isEnhancing.assign(to: &$isEnhancing)
+        isRequesting = false
     }
 
     /// Binds to a RemoteASRTranscriber's published properties.
@@ -56,6 +60,7 @@ class OverlayState: ObservableObject {
         transcriber.$audioLevel.assign(to: &$audioLevel)
         transcriber.$transcribedText.assign(to: &$transcribedText)
         transcriber.$isEnhancing.assign(to: &$isEnhancing)
+        transcriber.$isRequesting.assign(to: &$isRequesting)
     }
 
     func reset() {
@@ -64,11 +69,13 @@ class OverlayState: ObservableObject {
         transcribedText = ""
         statusMessage = ""
         isEnhancing = false
+        isRequesting = false
         isCompleting = false
         displayMode = .recording
         sessionIconMode = .transcription
         answerTitle = ""
         answerContent = ""
+        canInjectAnswer = false
         cancellables.removeAll()
     }
 
@@ -89,9 +96,10 @@ class OverlayState: ObservableObject {
         }
     }
 
-    func presentAnswer(title: String, content: String) {
+    func presentAnswer(title: String, content: String, canInject: Bool) {
         answerTitle = title
         answerContent = content
+        canInjectAnswer = canInject
         displayMode = .answer
         isRecording = false
         isEnhancing = false
@@ -110,6 +118,7 @@ class RecordingOverlayWindow: NSPanel {
     private weak var observedState: OverlayState?
     private var currentPosition: OverlayPosition = .bottom
     var onRequestClose: (() -> Void)?
+    var onRequestInject: (() -> Void)?
 
     init() {
         super.init(
@@ -136,6 +145,7 @@ class RecordingOverlayWindow: NSPanel {
 
         let content = OverlayContent(
             state: state,
+            onInject: { [weak self] in self?.onRequestInject?() },
             onClose: { [weak self] in self?.onRequestClose?() }
         )
 
@@ -229,6 +239,7 @@ class RecordingOverlayWindow: NSPanel {
 
 private struct OverlayContent: View {
     @ObservedObject var state: OverlayState
+    let onInject: () -> Void
     let onClose: () -> Void
 
     var body: some View {
@@ -240,9 +251,12 @@ private struct OverlayContent: View {
             transcribedText: state.transcribedText,
             statusMessage: state.statusMessage,
             isEnhancing: state.isEnhancing,
+            isRequesting: state.isRequesting,
             isCompleting: state.isCompleting,
             answerTitle: state.answerTitle,
             answerContent: state.answerContent,
+            canInjectAnswer: state.canInjectAnswer,
+            onInject: onInject,
             onClose: onClose
         )
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)

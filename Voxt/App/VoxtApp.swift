@@ -169,6 +169,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     var lastEnhancementPromptContext: EnhancementPromptContext?
     var rewriteSessionHasSelectedSourceText = false
     var rewriteSessionHadWritableFocusedInput = false
+    var rewriteSessionFallbackInjectBundleID: String?
     let tapStopGuardInterval: TimeInterval = 0.35
     let transcriptionStartDebounceInterval: TimeInterval = 0.08
     var settingsWindowPresentationState = SettingsWindowPresentationState()
@@ -325,6 +326,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         overlayWindow.onRequestClose = { [weak self] in
             Task { @MainActor [weak self] in
                 self?.dismissAnswerOverlay()
+            }
+        }
+        overlayWindow.onRequestInject = { [weak self] in
+            Task { @MainActor [weak self] in
+                self?.injectAnswerOverlayContent()
             }
         }
 

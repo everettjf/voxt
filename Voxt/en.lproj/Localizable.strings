@@ -44,6 +44,8 @@
 "Copy to clipboard when no focused input" = "Copy to clipboard when no focused input";
 "Always copy result to clipboard" = "Always copy result to clipboard";
 "AI Answer" = "AI Answer";
+"Copy Answer" = "Copy Answer";
+"Inject into Current Input" = "Inject into current input";
 "Also copy result to clipboard" = "Also copy result to clipboard";
 "App Behavior" = "App Behavior";
 "Launch at Login" = "Launch at Login";

@@ -223,7 +223,6 @@ struct GeneralModelStorageCard: View {
 
 struct GeneralOutputCard: View {
     @Binding var autoCopyWhenNoFocusedInput: Bool
-    @Binding var alwaysShowRewriteAnswerCard: Bool
     @Binding var translateSelectedTextOnTranslationHotkey: Bool
     @Binding var appEnhancementEnabled: Bool
 
@@ -231,13 +230,6 @@ struct GeneralOutputCard: View {
         GeneralSettingsCard(title: "Output") {
             Toggle("Also copy result to clipboard", isOn: $autoCopyWhenNoFocusedInput)
             Text("When enabled, Voxt auto-pastes result text and also keeps it in clipboard.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-
-            Toggle(isOn: $alwaysShowRewriteAnswerCard) {
-                Text(String(localized: "Always show rewrite answer card"))
-            }
-            Text(String(localized: "Applies only to rewrite. When disabled, the answer card appears only if no writable input is focused. When enabled, rewrite always shows the answer card."))
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
