@@ -4,6 +4,8 @@ extension Notification.Name {
     static let voxtSettingsSelectTab = Notification.Name("voxt.settings.selectTab")
     static let voxtInterfaceLanguageDidChange = Notification.Name("voxt.interfaceLanguage.didChange")
     static let voxtConfigurationDidImport = Notification.Name("voxt.configuration.didImport")
+    static let voxtSelectedInputDeviceDidChange = Notification.Name("voxt.selectedInputDevice.didChange")
+    static let voxtAudioInputDevicesDidChange = Notification.Name("voxt.audioInputDevices.didChange")
 }
 
 enum SettingsTab: String, CaseIterable, Identifiable {

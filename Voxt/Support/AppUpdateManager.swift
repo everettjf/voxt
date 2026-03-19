@@ -55,6 +55,11 @@ final class AppUpdateManager: NSObject, ObservableObject, SPUStandardUserDriverD
         }
     }
 
+    func syncAutomaticallyChecksForUpdates(_ newValue: Bool) {
+        guard automaticallyChecksForUpdates != newValue else { return }
+        automaticallyChecksForUpdates = newValue
+    }
+
     func checkForUpdates(source: CheckSource) {
         lastCheckSource = source
         reportIssue(nil)

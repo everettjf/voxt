@@ -30,37 +30,41 @@ class OverlayState: ObservableObject {
     @Published var answerTitle = ""
     @Published var answerContent = ""
     @Published var canInjectAnswer = false
+    @Published var isPresented = false
 
     private var cancellables = Set<AnyCancellable>()
 
     /// Binds to a SpeechTranscriber's published properties.
     func bind(to transcriber: SpeechTranscriber) {
-        cancellables.removeAll()
-        transcriber.$isRecording.assign(to: &$isRecording)
-        transcriber.$audioLevel.assign(to: &$audioLevel)
-        transcriber.$transcribedText.assign(to: &$transcribedText)
-        transcriber.$isEnhancing.assign(to: &$isEnhancing)
-        isRequesting = false
+        bind(
+            isRecording: transcriber.$isRecording.eraseToAnyPublisher(),
+            audioLevel: transcriber.$audioLevel.eraseToAnyPublisher(),
+            transcribedText: transcriber.$transcribedText.eraseToAnyPublisher(),
+            isEnhancing: transcriber.$isEnhancing.eraseToAnyPublisher(),
+            isRequesting: Just(false).eraseToAnyPublisher()
+        )
     }
 
     /// Binds to an MLXTranscriber's published properties.
     func bind(to transcriber: MLXTranscriber) {
-        cancellables.removeAll()
-        transcriber.$isRecording.assign(to: &$isRecording)
-        transcriber.$audioLevel.assign(to: &$audioLevel)
-        transcriber.$transcribedText.assign(to: &$transcribedText)
-        transcriber.$isEnhancing.assign(to: &$isEnhancing)
-        isRequesting = false
+        bind(
+            isRecording: transcriber.$isRecording.eraseToAnyPublisher(),
+            audioLevel: transcriber.$audioLevel.eraseToAnyPublisher(),
+            transcribedText: transcriber.$transcribedText.eraseToAnyPublisher(),
+            isEnhancing: transcriber.$isEnhancing.eraseToAnyPublisher(),
+            isRequesting: Just(false).eraseToAnyPublisher()
+        )
     }
 
     /// Binds to a RemoteASRTranscriber's published properties.
     func bind(to transcriber: RemoteASRTranscriber) {
-        cancellables.removeAll()
-        transcriber.$isRecording.assign(to: &$isRecording)
-        transcriber.$audioLevel.assign(to: &$audioLevel)
-        transcriber.$transcribedText.assign(to: &$transcribedText)
-        transcriber.$isEnhancing.assign(to: &$isEnhancing)
-        transcriber.$isRequesting.assign(to: &$isRequesting)
+        bind(
+            isRecording: transcriber.$isRecording.eraseToAnyPublisher(),
+            audioLevel: transcriber.$audioLevel.eraseToAnyPublisher(),
+            transcribedText: transcriber.$transcribedText.eraseToAnyPublisher(),
+            isEnhancing: transcriber.$isEnhancing.eraseToAnyPublisher(),
+            isRequesting: transcriber.$isRequesting.eraseToAnyPublisher()
+        )
     }
 
     func reset() {
@@ -76,6 +80,7 @@ class OverlayState: ObservableObject {
         answerTitle = ""
         answerContent = ""
         canInjectAnswer = false
+        isPresented = false
         cancellables.removeAll()
     }
 
@@ -102,9 +107,77 @@ class OverlayState: ObservableObject {
         canInjectAnswer = canInject
         displayMode = .answer
         isRecording = false
+        audioLevel = 0
         isEnhancing = false
+        isRequesting = false
         isCompleting = false
         statusMessage = ""
+    }
+
+    var shouldAnimateVisuals: Bool {
+        isPresented && (isRecording || displayMode == .processing || isEnhancing || isRequesting)
+    }
+
+    private func bind(
+        isRecording recordingPublisher: AnyPublisher<Bool, Never>,
+        audioLevel audioLevelPublisher: AnyPublisher<Float, Never>,
+        transcribedText transcribedTextPublisher: AnyPublisher<String, Never>,
+        isEnhancing isEnhancingPublisher: AnyPublisher<Bool, Never>,
+        isRequesting isRequestingPublisher: AnyPublisher<Bool, Never>
+    ) {
+        cancellables.removeAll()
+        audioLevel = 0
+
+        recordingPublisher
+            .receive(on: RunLoop.main)
+            .sink { [weak self] isRecording in
+                guard let self else { return }
+                self.isRecording = isRecording
+                if !isRecording {
+                    self.audioLevel = 0
+                }
+            }
+            .store(in: &cancellables)
+
+        audioLevelPublisher
+            .combineLatest(recordingPublisher)
+            .map { level, isRecording in
+                guard isRecording else { return Float.zero }
+                return Self.quantizedAudioLevel(level)
+            }
+            .removeDuplicates()
+            .throttle(for: .milliseconds(50), scheduler: RunLoop.main, latest: true)
+            .sink { [weak self] level in
+                self?.audioLevel = level
+            }
+            .store(in: &cancellables)
+
+        transcribedTextPublisher
+            .receive(on: RunLoop.main)
+            .sink { [weak self] text in
+                self?.transcribedText = text
+            }
+            .store(in: &cancellables)
+
+        isEnhancingPublisher
+            .receive(on: RunLoop.main)
+            .sink { [weak self] isEnhancing in
+                self?.isEnhancing = isEnhancing
+            }
+            .store(in: &cancellables)
+
+        isRequestingPublisher
+            .receive(on: RunLoop.main)
+            .sink { [weak self] isRequesting in
+                self?.isRequesting = isRequesting
+            }
+            .store(in: &cancellables)
+    }
+
+    private static func quantizedAudioLevel(_ rawLevel: Float) -> Float {
+        let clamped = max(0, min(rawLevel, 1))
+        let steps: Float = 20
+        return (clamped * steps).rounded() / steps
     }
 }
 
@@ -142,6 +215,7 @@ class RecordingOverlayWindow: NSPanel {
     func show(state: OverlayState, position: OverlayPosition) {
         visibilityToken &+= 1
         currentPosition = position
+        state.isPresented = true
 
         let content = OverlayContent(
             state: state,
@@ -168,6 +242,15 @@ class RecordingOverlayWindow: NSPanel {
     }
 
     func hide(completion: (() -> Void)? = nil) {
+        observedState?.isPresented = false
+        observedState?.audioLevel = 0
+
+        guard isVisible else {
+            orderOut(nil)
+            completion?()
+            return
+        }
+
         let token = visibilityToken
         NSAnimationContext.runAnimationGroup({ ctx in
             ctx.duration = 0.3
@@ -248,6 +331,7 @@ private struct OverlayContent: View {
             sessionIconMode: state.sessionIconMode,
             audioLevel: state.audioLevel,
             isRecording: state.isRecording,
+            shouldAnimate: state.shouldAnimateVisuals,
             transcribedText: state.transcribedText,
             statusMessage: state.statusMessage,
             isEnhancing: state.isEnhancing,

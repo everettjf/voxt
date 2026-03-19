@@ -180,7 +180,9 @@ struct GeneralSettingsView: View {
                     isSyncingLaunchAtLoginState = false
                 }
             }
-            autoCheckForUpdates = appUpdateManager.automaticallyChecksForUpdates
+            if autoCheckForUpdates != appUpdateManager.automaticallyChecksForUpdates {
+                autoCheckForUpdates = appUpdateManager.automaticallyChecksForUpdates
+            }
             AppBehaviorController.applyDockVisibility(showInDock: showInDock)
             refreshModelStorageDisplayPath()
         }
@@ -203,7 +205,7 @@ struct GeneralSettingsView: View {
             AppBehaviorController.applyDockVisibility(showInDock: newValue)
         }
         .onChange(of: autoCheckForUpdates) { _, newValue in
-            appUpdateManager.automaticallyChecksForUpdates = newValue
+            appUpdateManager.syncAutomaticallyChecksForUpdates(newValue)
         }
         .onChange(of: muteSystemAudioWhileRecording) { _, newValue in
             guard newValue else {
@@ -226,8 +228,14 @@ struct GeneralSettingsView: View {
         .onChange(of: interfaceLanguageRaw) { _, _ in
             NotificationCenter.default.post(name: .voxtInterfaceLanguageDidChange, object: nil)
         }
+        .onChange(of: selectedInputDeviceIDRaw) { _, _ in
+            NotificationCenter.default.post(name: .voxtSelectedInputDeviceDidChange, object: nil)
+        }
         .onChange(of: modelStorageRootPath) { _, _ in
             refreshModelStorageDisplayPath()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .voxtAudioInputDevicesDidChange)) { _ in
+            refreshInputDevices()
         }
         .sheet(isPresented: $isUserMainLanguageSheetPresented) {
             UserMainLanguageSelectionSheet(
@@ -323,8 +331,10 @@ struct GeneralSettingsView: View {
             let defaults = UserDefaults.standard
             AppBehaviorController.applyDockVisibility(showInDock: defaults.bool(forKey: AppPreferenceKey.showInDock))
             try? AppBehaviorController.setLaunchAtLogin(defaults.bool(forKey: AppPreferenceKey.launchAtLogin))
+            appUpdateManager.syncAutomaticallyChecksForUpdates(defaults.bool(forKey: AppPreferenceKey.autoCheckForUpdates))
             NotificationCenter.default.post(name: .voxtConfigurationDidImport, object: nil)
             NotificationCenter.default.post(name: .voxtInterfaceLanguageDidChange, object: nil)
+            NotificationCenter.default.post(name: .voxtSelectedInputDeviceDidChange, object: nil)
             refreshInputDevices()
             refreshModelStorageDisplayPath()
             configurationTransferMessage = String(localized: "Configuration imported successfully. Included dictionary data was restored, and sensitive fields need to be filled in again if required.")

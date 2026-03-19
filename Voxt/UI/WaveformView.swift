@@ -7,6 +7,7 @@ struct WaveformView: View {
     var sessionIconMode: OverlaySessionIconMode
     var audioLevel: Float
     var isRecording: Bool
+    var shouldAnimate: Bool
     var transcribedText: String
     var statusMessage: String = ""
     var isEnhancing: Bool = false
@@ -21,9 +22,11 @@ struct WaveformView: View {
     private let iconSlotSize = CGSize(width: 16, height: 28)
     private let barAreaHeight: CGFloat = 28
     private let barCount = 16
+    private let basePhases: [Double] = (0..<16).map { Double($0) * 0.4 }
 
     @State private var phases: [Double] = (0..<16).map { Double($0) * 0.4 }
     @State private var animTimer: Timer?
+    @State private var currentAnimationInterval: TimeInterval?
     @State private var appeared = false
     @State private var textScrollID = UUID()
     @State private var didCopyAnswer = false
@@ -62,7 +65,7 @@ struct WaveformView: View {
         .opacity(appeared ? 1.0 : 0.0)
         .animation(.spring(response: 0.35, dampingFraction: 0.5, blendDuration: 0.1), value: appeared)
         .onAppear {
-            startAnimating()
+            updateAnimationState()
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.02) {
                 appeared = true
             }
@@ -70,6 +73,15 @@ struct WaveformView: View {
         .onDisappear {
             stopAnimating()
             appeared = false
+        }
+        .onChange(of: shouldAnimate) {
+            updateAnimationState()
+        }
+        .onChange(of: displayMode) {
+            updateAnimationState()
+        }
+        .onChange(of: isRecording) {
+            updateAnimationState()
         }
     }
 
@@ -259,7 +271,6 @@ struct WaveformView: View {
                     )
                     .frame(width: 3.2, height: barHeight(for: index))
                     .shadow(color: .white.opacity(glowOpacity(for: index)), radius: 3, x: 0, y: 0)
-                    .animation(.easeInOut(duration: 0.1), value: audioLevel)
             }
         }
         .frame(height: barAreaHeight)
@@ -279,7 +290,7 @@ struct WaveformView: View {
     @ViewBuilder
     private var compactModeIcon: some View {
         if showsLoadingSpinner {
-            LoadingSpinnerIconView()
+            LoadingSpinnerIconView(isAnimating: shouldAnimate)
                 .frame(width: 14, height: 14)
         } else {
             switch sessionIconMode {
@@ -300,18 +311,25 @@ struct WaveformView: View {
     }
 
     private func barHeight(for index: Int) -> CGFloat {
-        let level = normalizedAudioLevel(audioLevel)
-        let phase = phases[index]
-        let sine = (sin(phase) + 1) / 2
         let minH: CGFloat = 4
         let maxH: CGFloat = 26
+        let phase = phases[index]
+        let sine = (sin(phase) + 1) / 2
 
         if isRecording {
-            let driven = minH + (maxH - minH) * level * CGFloat(sine * 0.72 + 0.28)
+            let level = normalizedAudioLevel(audioLevel)
+            let pulse = CGFloat(sine * 0.82 + 0.18)
+            let emphasis = pow(level, 0.82)
+            let floor = max(0.12, min(0.36, level * 0.42))
+            let driven = minH + (maxH - minH) * (floor + emphasis * pulse * 0.9)
             return max(minH, driven)
-        } else {
-            return minH + (maxH * 0.18) * CGFloat(sine)
         }
+
+        if displayMode == .processing {
+            return minH + CGFloat(3.5 * sine)
+        }
+
+        return staticBarHeight(for: index)
     }
 
     private func glowOpacity(for index: Int) -> Double {
@@ -328,6 +346,11 @@ struct WaveformView: View {
         return CGFloat(gained)
     }
 
+    private func staticBarHeight(for index: Int) -> CGFloat {
+        let pattern: [CGFloat] = [5, 7, 10, 12, 9, 6, 8, 11]
+        return pattern[index % pattern.count]
+    }
+
     private func processingBarHeight(for index: Int) -> CGFloat {
         let phase = phases[index]
         let sine = (sin(phase) + 1) / 2
@@ -342,28 +365,59 @@ struct WaveformView: View {
         return 0.35 + 0.4 * sine
     }
 
-    private func startAnimating() {
-        animTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 30.0, repeats: true) { _ in
-            Task { @MainActor in
-                let speed: Double
-                switch displayMode {
-                case .recording:
-                    speed = isRecording ? 0.18 : 0.05
-                case .processing:
-                    speed = 0.08
-                case .answer:
-                    speed = 0.05
-                }
-                for i in 0..<barCount {
-                    phases[i] += speed + Double(i) * 0.008
-                }
+    private var desiredAnimationInterval: TimeInterval? {
+        guard shouldAnimate else { return nil }
+
+        switch displayMode {
+        case .recording:
+            return isRecording ? (1.0 / 20.0) : nil
+        case .processing:
+            return 1.0 / 10.0
+        case .answer:
+            return nil
+        }
+    }
+
+    private var animationSpeed: Double {
+        switch displayMode {
+        case .recording:
+            return isRecording ? 0.16 : 0
+        case .processing:
+            return 0.06
+        case .answer:
+            return 0
+        }
+    }
+
+    private func updateAnimationState() {
+        guard let interval = desiredAnimationInterval else {
+            stopAnimating(resetPhases: true)
+            return
+        }
+
+        guard animTimer == nil || currentAnimationInterval != interval else { return }
+        startAnimating(interval: interval)
+    }
+
+    private func startAnimating(interval: TimeInterval) {
+        stopAnimating(resetPhases: false)
+        currentAnimationInterval = interval
+        animTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { _ in
+            let speed = animationSpeed
+            guard speed > 0 else { return }
+            for i in 0..<barCount {
+                phases[i] += speed + Double(i) * 0.006
             }
         }
     }
 
-    private func stopAnimating() {
+    private func stopAnimating(resetPhases: Bool = true) {
         animTimer?.invalidate()
         animTimer = nil
+        currentAnimationInterval = nil
+        if resetPhases {
+            phases = basePhases
+        }
     }
 
     private func copyAnswerToPasteboard() {

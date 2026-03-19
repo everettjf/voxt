@@ -76,7 +76,9 @@ struct RewriteModeIconView: View {
 }
 
 struct LoadingSpinnerIconView: View {
-    @State private var isRotating = false
+    var isAnimating: Bool
+
+    @State private var rotationDegrees = 0.0
 
     var body: some View {
         Circle()
@@ -85,13 +87,29 @@ struct LoadingSpinnerIconView: View {
                 .white.opacity(0.95),
                 style: StrokeStyle(lineWidth: 1.8, lineCap: .round)
             )
-            .rotationEffect(.degrees(isRotating ? 360 : 0))
+            .rotationEffect(.degrees(rotationDegrees))
             .padding(1)
             .onAppear {
-                withAnimation(.linear(duration: 0.9).repeatForever(autoreverses: false)) {
-                    isRotating = true
-                }
+                updateAnimationState()
             }
+            .onChange(of: isAnimating) {
+                updateAnimationState()
+            }
+    }
+
+    private func updateAnimationState() {
+        if isAnimating {
+            rotationDegrees = 0
+            withAnimation(.linear(duration: 0.9).repeatForever(autoreverses: false)) {
+                rotationDegrees = 360
+            }
+        } else {
+            var transaction = Transaction()
+            transaction.disablesAnimations = true
+            withTransaction(transaction) {
+                rotationDegrees = 0
+            }
+        }
     }
 }
 

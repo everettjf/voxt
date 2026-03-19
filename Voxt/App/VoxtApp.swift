@@ -135,11 +135,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     var enhancer: TextEnhancer?
     var settingsWindowController: NSWindowController?
-    private var defaultsObserver: NSObjectProtocol?
     private var interfaceLanguageObserver: NSObjectProtocol?
     private var updateAvailabilityObserver: NSObjectProtocol?
+    private var selectedInputDeviceObserver: NSObjectProtocol?
+    var audioInputDevicesObserver: AudioInputDeviceObserver?
     private var globalEscapeKeyMonitor: Any?
     private var localEscapeKeyMonitor: Any?
+    var inputDevicesRefreshTask: Task<Void, Never>?
+    var inputDevicesSnapshot: [AudioInputDevice] = []
 
     var isSessionActive = false
     var pendingSessionFinishTask: Task<Void, Never>?
@@ -284,6 +287,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             }
             button.image?.accessibilityDescription = "Voxt"
         }
+        appUpdateManager.syncAutomaticallyChecksForUpdates(autoCheckForUpdates)
+        startObservingAudioInputDevices()
+        refreshInputDevicesSnapshot(reason: "launch")
         buildMenu()
         appUpdateManager.onUpdatePresentationWillBegin = { [weak self] in
             self?.prepareSettingsWindowForUpdatePresentation()
@@ -291,15 +297,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         appUpdateManager.onUpdatePresentationDidEnd = { [weak self] in
             self?.restoreSettingsWindowAfterUpdateSessionIfNeeded()
         }
-        defaultsObserver = NotificationCenter.default.addObserver(
-            forName: UserDefaults.didChangeNotification,
+        selectedInputDeviceObserver = NotificationCenter.default.addObserver(
+            forName: .voxtSelectedInputDeviceDidChange,
             object: nil,
             queue: .main
         ) { [weak self] _ in
             Task { @MainActor [weak self] in
                 self?.buildMenu()
-                guard let self else { return }
-                self.appUpdateManager.automaticallyChecksForUpdates = self.autoCheckForUpdates
             }
         }
         interfaceLanguageObserver = NotificationCenter.default.addObserver(
@@ -334,7 +338,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
 
-        appUpdateManager.automaticallyChecksForUpdates = autoCheckForUpdates
         VoxtLog.info("Voxt launch completed. engine=\(transcriptionEngine.rawValue), enhancement=\(enhancementMode.rawValue)")
     }
 
@@ -343,14 +346,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     deinit {
-        if let defaultsObserver {
-            NotificationCenter.default.removeObserver(defaultsObserver)
-        }
         if let interfaceLanguageObserver {
             NotificationCenter.default.removeObserver(interfaceLanguageObserver)
         }
         if let updateAvailabilityObserver {
             NotificationCenter.default.removeObserver(updateAvailabilityObserver)
+        }
+        if let selectedInputDeviceObserver {
+            NotificationCenter.default.removeObserver(selectedInputDeviceObserver)
         }
         if let globalEscapeKeyMonitor {
             NSEvent.removeMonitor(globalEscapeKeyMonitor)
@@ -358,6 +361,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         if let localEscapeKeyMonitor {
             NSEvent.removeMonitor(localEscapeKeyMonitor)
         }
+        inputDevicesRefreshTask?.cancel()
     }
 
     private func migrateLegacyPreferences() {

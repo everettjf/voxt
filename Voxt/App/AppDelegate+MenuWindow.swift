@@ -63,10 +63,9 @@ extension AppDelegate {
 
     private func buildMicrophoneMenu() -> NSMenu {
         let submenu = NSMenu()
-        let devices = AudioInputDeviceManager.availableInputDevices()
-        let resolvedSelectedID = resolvedMenuSelectedInputDeviceID(from: devices)
+        let resolvedSelectedID = selectedInputDeviceID
 
-        for device in devices {
+        for device in inputDevicesSnapshot {
             let item = NSMenuItem(title: device.name, action: #selector(selectMicrophoneFromMenu(_:)), keyEquivalent: "")
             item.target = self
             item.tag = Int(device.id)
@@ -83,25 +82,57 @@ extension AppDelegate {
         return submenu
     }
 
-    private func resolvedMenuSelectedInputDeviceID(from devices: [AudioInputDevice]) -> AudioDeviceID? {
-        if let selectedInputDeviceID,
-           devices.contains(where: { $0.id == selectedInputDeviceID }) {
-            return selectedInputDeviceID
+    func startObservingAudioInputDevices() {
+        audioInputDevicesObserver = AudioInputDeviceManager.makeDevicesObserver { [weak self] in
+            Task { @MainActor [weak self] in
+                self?.refreshInputDevicesSnapshot(reason: "hardware change")
+            }
+        }
+    }
+
+    func refreshInputDevicesSnapshot(reason: String) {
+        inputDevicesRefreshTask?.cancel()
+
+        inputDevicesRefreshTask = Task { [weak self] in
+            let devices = await Task.detached(priority: .utility) {
+                AudioInputDeviceManager.snapshotAvailableInputDevices()
+            }.value
+            guard !Task.isCancelled else { return }
+
+            await MainActor.run {
+                guard let self else { return }
+                self.applyInputDevicesSnapshot(devices, reason: reason)
+            }
+        }
+    }
+
+    private func applyInputDevicesSnapshot(_ devices: [AudioInputDevice], reason: String) {
+        let previousDevices = inputDevicesSnapshot
+        let previousSelectedID = selectedInputDeviceID
+        inputDevicesSnapshot = devices
+        let resolvedSelectedID = AudioInputDeviceManager.resolvedInputDeviceID(
+            from: devices,
+            preferredID: previousSelectedID
+        )
+
+        let resolvedSelectedRaw = resolvedSelectedID.map(Int.init) ?? 0
+        if Int(previousSelectedID ?? 0) != resolvedSelectedRaw {
+            UserDefaults.standard.set(resolvedSelectedRaw, forKey: AppPreferenceKey.selectedInputDeviceID)
         }
 
-        if let defaultDeviceID = AudioInputDeviceManager.defaultInputDeviceID(),
-           devices.contains(where: { $0.id == defaultDeviceID }) {
-            UserDefaults.standard.set(Int(defaultDeviceID), forKey: AppPreferenceKey.selectedInputDeviceID)
-            return defaultDeviceID
+        let devicesChanged = previousDevices != devices
+        let selectionChanged = previousSelectedID != resolvedSelectedID
+        guard devicesChanged || selectionChanged else { return }
+
+        if devicesChanged {
+            NotificationCenter.default.post(name: .voxtAudioInputDevicesDidChange, object: nil)
         }
 
-        if let first = devices.first {
-            UserDefaults.standard.set(Int(first.id), forKey: AppPreferenceKey.selectedInputDeviceID)
-            return first.id
-        }
-
-        UserDefaults.standard.set(0, forKey: AppPreferenceKey.selectedInputDeviceID)
-        return nil
+        VoxtLog.info(
+            "Audio input snapshot refreshed. reason=\(reason), devices=\(devices.count), selected=\(resolvedSelectedRaw)",
+            verbose: true
+        )
+        buildMenu()
     }
 
     @objc private func checkForUpdates() {
@@ -138,6 +169,7 @@ extension AppDelegate {
 
     @objc private func selectMicrophoneFromMenu(_ sender: NSMenuItem) {
         UserDefaults.standard.set(sender.tag, forKey: AppPreferenceKey.selectedInputDeviceID)
+        NotificationCenter.default.post(name: .voxtSelectedInputDeviceDidChange, object: nil)
     }
 
     func openSettingsWindow(selectTab: SettingsTab?) {
