@@ -35,6 +35,7 @@ final class MeetingOverlayWindow: NSPanel {
         backgroundColor = .clear
         hasShadow = false
         isMovableByWindowBackground = false
+        sharingType = .none
         collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         ignoresMouseEvents = false
 

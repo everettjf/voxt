@@ -11,7 +11,11 @@ final class MeetingDetailWindowManager {
     private var historyControllers: [UUID: MeetingDetailWindowController] = [:]
     private var liveController: MeetingDetailWindowController?
 
-    func presentHistoryMeeting(entry: TranscriptionHistoryEntry, audioURL: URL?) {
+    func presentHistoryMeeting(
+        entry: TranscriptionHistoryEntry,
+        audioURL: URL?,
+        translationHandler: @escaping @MainActor (String, TranslationTargetLanguage) async throws -> String
+    ) {
         if let controller = historyControllers[entry.id] {
             controller.showWindow(nil)
             controller.window?.makeKeyAndOrderFront(nil)
@@ -24,13 +28,7 @@ final class MeetingDetailWindowManager {
             subtitle: entry.createdAt.formatted(date: .abbreviated, time: .shortened),
             segments: entry.meetingSegments ?? [],
             audioURL: audioURL,
-            canExportProvider: { !(entry.meetingSegments ?? []).isEmpty },
-            exportHandler: {
-                try MeetingTranscriptExporter.export(
-                    segments: entry.meetingSegments ?? [],
-                    defaultFilename: MeetingTranscriptExporter.defaultFilename(prefix: "Voxt-Meeting")
-                )
-            }
+            translationHandler: translationHandler
         )
         let controller = MeetingDetailWindowController(viewModel: viewModel) { [weak self] in
             self?.historyControllers[entry.id] = nil
@@ -43,7 +41,7 @@ final class MeetingDetailWindowManager {
 
     func presentLiveMeeting(
         state: MeetingOverlayState,
-        onExport: @escaping () -> Void
+        translationHandler: @escaping @MainActor (String, TranslationTargetLanguage) async throws -> String
     ) {
         if let controller = liveController {
             controller.showWindow(nil)
@@ -54,7 +52,7 @@ final class MeetingDetailWindowManager {
 
         let viewModel = MeetingDetailViewModel(
             liveState: state,
-            exportHandler: onExport
+            translationHandler: translationHandler
         )
         let controller = MeetingDetailWindowController(viewModel: viewModel) { [weak self] in
             self?.liveController = nil
@@ -116,35 +114,41 @@ private final class MeetingDetailViewModel: ObservableObject {
     @Published private(set) var subtitle: String
     @Published private(set) var segments: [MeetingTranscriptSegment]
     @Published private(set) var isPaused = false
+    @Published var translationEnabled: Bool
+    @Published var isTranslationLanguagePickerPresented = false
+    @Published var translationDraftLanguageRaw: String
 
     let mode: Mode
     let audioURL: URL?
 
-    private let canExportProvider: () -> Bool
-    private let exportHandler: () throws -> Void
+    private let translationHandler: @MainActor (String, TranslationTargetLanguage) async throws -> String
     private var cancellables = Set<AnyCancellable>()
+    private var translationTasks: [UUID: Task<Void, Never>] = [:]
 
     init(
         title: String,
         subtitle: String,
         segments: [MeetingTranscriptSegment],
         audioURL: URL?,
-        canExportProvider: @escaping () -> Bool,
-        exportHandler: @escaping () throws -> Void
+        translationHandler: @escaping @MainActor (String, TranslationTargetLanguage) async throws -> String
     ) {
         self.mode = .history
         self.title = title
         self.subtitle = subtitle
         self.segments = segments
         self.audioURL = audioURL
-        self.canExportProvider = canExportProvider
-        self.exportHandler = exportHandler
         self.isPaused = true
+        self.translationHandler = translationHandler
+        let savedLanguage = UserDefaults.standard.string(forKey: AppPreferenceKey.meetingRealtimeTranslationTargetLanguage)
+        self.translationDraftLanguageRaw = savedLanguage?.isEmpty == false
+            ? savedLanguage!
+            : TranslationTargetLanguage.english.rawValue
+        self.translationEnabled = Self.segmentsContainTranslations(segments)
     }
 
     init(
         liveState: MeetingOverlayState,
-        exportHandler: @escaping () -> Void
+        translationHandler: @escaping @MainActor (String, TranslationTargetLanguage) async throws -> String
     ) {
         self.mode = .live
         self.title = String(localized: "会议详情")
@@ -154,13 +158,17 @@ private final class MeetingDetailViewModel: ObservableObject {
         self.segments = liveState.segments
         self.audioURL = nil
         self.isPaused = liveState.isPaused
-        self.canExportProvider = { liveState.isPaused && !liveState.segments.isEmpty }
-        self.exportHandler = exportHandler
+        self.translationHandler = translationHandler
+        let savedLanguage = UserDefaults.standard.string(forKey: AppPreferenceKey.meetingRealtimeTranslationTargetLanguage)
+        self.translationDraftLanguageRaw = savedLanguage?.isEmpty == false
+            ? savedLanguage!
+            : TranslationTargetLanguage.english.rawValue
+        self.translationEnabled = liveState.realtimeTranslateEnabled || Self.segmentsContainTranslations(liveState.segments)
 
         liveState.$segments
             .receive(on: RunLoop.main)
             .sink { [weak self] segments in
-                self?.segments = segments
+                self?.updateLiveSegments(segments)
             }
             .store(in: &cancellables)
 
@@ -173,19 +181,184 @@ private final class MeetingDetailViewModel: ObservableObject {
                     : (isRecording ? String(localized: "会议进行中") : String(localized: "会议已结束"))
             }
             .store(in: &cancellables)
+
+        liveState.$realtimeTranslateEnabled
+            .receive(on: RunLoop.main)
+            .sink { [weak self] isEnabled in
+                guard let self else { return }
+                if isEnabled {
+                    self.translationEnabled = true
+                }
+            }
+            .store(in: &cancellables)
     }
 
     var canExport: Bool {
-        canExportProvider()
+        switch mode {
+        case .history:
+            return !segments.isEmpty
+        case .live:
+            return isPaused && !segments.isEmpty
+        }
     }
 
     func export() throws {
-        try exportHandler()
+        try MeetingTranscriptExporter.export(
+            segments: segments,
+            defaultFilename: MeetingTranscriptExporter.defaultFilename(prefix: "Voxt-Meeting")
+        )
+    }
+
+    func setTranslationEnabled(_ isEnabled: Bool) {
+        guard isEnabled else {
+            isTranslationLanguagePickerPresented = false
+            translationEnabled = false
+            cancelTranslationTasks()
+            clearPendingTranslationState()
+            return
+        }
+
+        if Self.segmentsContainTranslations(segments) {
+            translationEnabled = true
+            return
+        }
+
+        translationDraftLanguageRaw = resolvedStoredTranslationLanguage().rawValue
+        isTranslationLanguagePickerPresented = true
+        translationEnabled = false
+    }
+
+    func confirmTranslationLanguageSelection() {
+        guard let language = TranslationTargetLanguage(rawValue: translationDraftLanguageRaw) else {
+            cancelTranslationLanguageSelection()
+            return
+        }
+
+        UserDefaults.standard.set(
+            language.rawValue,
+            forKey: AppPreferenceKey.meetingRealtimeTranslationTargetLanguage
+        )
+        isTranslationLanguagePickerPresented = false
+        translationEnabled = true
+        translateEligibleSegmentsIfNeeded(targetLanguage: language)
+    }
+
+    func cancelTranslationLanguageSelection() {
+        isTranslationLanguagePickerPresented = false
+        translationEnabled = false
+    }
+
+    private func updateLiveSegments(_ incomingSegments: [MeetingTranscriptSegment]) {
+        segments = mergeSegmentsPreservingTranslationState(incomingSegments)
+        if translationEnabled {
+            translateEligibleSegmentsIfNeeded(targetLanguage: resolvedStoredTranslationLanguage())
+        }
+    }
+
+    private func mergeSegmentsPreservingTranslationState(_ incomingSegments: [MeetingTranscriptSegment]) -> [MeetingTranscriptSegment] {
+        let existingByID = Dictionary(uniqueKeysWithValues: segments.map { ($0.id, $0) })
+        return incomingSegments.map { incoming in
+            guard let existing = existingByID[incoming.id] else { return incoming }
+
+            let existingTranslatedText = existing.translatedText?.trimmingCharacters(in: .whitespacesAndNewlines)
+            let incomingTranslatedText = incoming.translatedText?.trimmingCharacters(in: .whitespacesAndNewlines)
+            let resolvedTranslatedText = incomingTranslatedText?.isEmpty == false
+                ? incomingTranslatedText
+                : (existingTranslatedText?.isEmpty == false ? existingTranslatedText : nil)
+
+            return MeetingTranscriptSegment(
+                id: incoming.id,
+                speaker: incoming.speaker,
+                startSeconds: incoming.startSeconds,
+                endSeconds: incoming.endSeconds,
+                text: incoming.text,
+                translatedText: resolvedTranslatedText,
+                isTranslationPending: incoming.isTranslationPending || existing.isTranslationPending
+            )
+        }
+    }
+
+    private func translateEligibleSegmentsIfNeeded(targetLanguage: TranslationTargetLanguage) {
+        for segment in segments where shouldTranslate(segment: segment) {
+            markSegment(segment.id) { current in
+                current.updatingTranslation(translatedText: current.translatedText, isTranslationPending: true)
+            }
+
+            translationTasks[segment.id]?.cancel()
+            translationTasks[segment.id] = Task { [weak self] in
+                guard let self else { return }
+                do {
+                    let translatedText = try await self.translationHandler(segment.text, targetLanguage)
+                    await MainActor.run {
+                        self.markSegment(segment.id) { current in
+                            current.updatingTranslation(
+                                translatedText: translatedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                                    ? nil
+                                    : translatedText.trimmingCharacters(in: .whitespacesAndNewlines),
+                                isTranslationPending: false
+                            )
+                        }
+                        self.translationTasks[segment.id] = nil
+                    }
+                } catch {
+                    await MainActor.run {
+                        self.markSegment(segment.id) { current in
+                            current.updatingTranslation(
+                                translatedText: current.translatedText,
+                                isTranslationPending: false
+                            )
+                        }
+                        self.translationTasks[segment.id] = nil
+                    }
+                }
+            }
+        }
+    }
+
+    private func shouldTranslate(segment: MeetingTranscriptSegment) -> Bool {
+        guard segment.speaker == .them else { return false }
+        let translatedText = segment.translatedText?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return translatedText.isEmpty && !segment.isTranslationPending
+    }
+
+    private func markSegment(_ id: UUID, update: (MeetingTranscriptSegment) -> MeetingTranscriptSegment) {
+        guard let index = segments.firstIndex(where: { $0.id == id }) else { return }
+        segments[index] = update(segments[index])
+    }
+
+    private func cancelTranslationTasks() {
+        translationTasks.values.forEach { $0.cancel() }
+        translationTasks.removeAll()
+    }
+
+    private func clearPendingTranslationState() {
+        segments = segments.map { segment in
+            guard segment.isTranslationPending else { return segment }
+            return segment.updatingTranslation(
+                translatedText: segment.translatedText,
+                isTranslationPending: false
+            )
+        }
+    }
+
+    private func resolvedStoredTranslationLanguage() -> TranslationTargetLanguage {
+        guard let rawValue = UserDefaults.standard.string(forKey: AppPreferenceKey.meetingRealtimeTranslationTargetLanguage),
+              let language = TranslationTargetLanguage(rawValue: rawValue)
+        else {
+            return .english
+        }
+        return language
+    }
+
+    private static func segmentsContainTranslations(_ segments: [MeetingTranscriptSegment]) -> Bool {
+        segments.contains { segment in
+            !(segment.translatedText?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
+        }
     }
 }
 
 @MainActor
-private enum MeetingTranscriptExporter {
+enum MeetingTranscriptExporter {
     static func defaultFilename(prefix: String) -> String {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
@@ -280,49 +453,104 @@ private struct MeetingDetailWindowView: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            header
+        ZStack {
+            VStack(spacing: 0) {
+                header
 
-            Divider()
+                Divider()
 
-            ScrollViewReader { proxy in
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 10) {
-                        ForEach(viewModel.segments) { segment in
-                            MeetingDetailSegmentRow(
-                                segment: segment,
-                                isActive: activeSegmentID == segment.id
-                            )
-                            .id(segment.id)
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        LazyVStack(alignment: .leading, spacing: 10) {
+                            ForEach(viewModel.segments) { segment in
+                                MeetingDetailSegmentRow(
+                                    segment: segment,
+                                    isActive: activeSegmentID == segment.id,
+                                    showsTranslation: viewModel.translationEnabled
+                                )
+                                .id(segment.id)
+                            }
+                        }
+                        .padding(.horizontal, 18)
+                        .padding(.vertical, 16)
+                    }
+                    .onAppear {
+                        updateActiveSegment(for: playbackController.currentTime)
+                    }
+                    .onChange(of: playbackController.currentTime) { _, newValue in
+                        guard viewModel.mode == .history else { return }
+                        updateActiveSegment(for: newValue)
+                        guard !isScrubbing, let activeSegmentID else { return }
+                        withAnimation(.easeOut(duration: 0.18)) {
+                            proxy.scrollTo(activeSegmentID, anchor: .center)
                         }
                     }
-                    .padding(.horizontal, 18)
-                    .padding(.vertical, 16)
-                }
-                .onAppear {
-                    updateActiveSegment(for: playbackController.currentTime)
-                }
-                .onChange(of: playbackController.currentTime) { _, newValue in
-                    guard viewModel.mode == .history else { return }
-                    updateActiveSegment(for: newValue)
-                    guard !isScrubbing, let activeSegmentID else { return }
-                    withAnimation(.easeOut(duration: 0.18)) {
-                        proxy.scrollTo(activeSegmentID, anchor: .center)
+                    .onChange(of: viewModel.segments) { _, newValue in
+                        guard viewModel.mode == .live, let newest = newValue.last?.id else { return }
+                        withAnimation(.easeOut(duration: 0.18)) {
+                            proxy.scrollTo(newest, anchor: .bottom)
+                        }
                     }
                 }
-                .onChange(of: viewModel.segments) { _, newValue in
-                    guard viewModel.mode == .live, let newest = newValue.last?.id else { return }
-                    withAnimation(.easeOut(duration: 0.18)) {
-                        proxy.scrollTo(newest, anchor: .bottom)
-                    }
+
+                Divider()
+
+                bottomBar
+            }
+            .frame(minWidth: 760, minHeight: 560)
+
+            if viewModel.isTranslationLanguagePickerPresented {
+                Color.black.opacity(0.18)
+                    .ignoresSafeArea()
+
+                translationLanguageDialog
+            }
+        }
+    }
+
+    private var translationLanguageDialog: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text(String(localized: "选择翻译语言"))
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(.primary)
+
+            Text(String(localized: "详情里的翻译会只翻译 them 的内容。"))
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(.secondary)
+
+            Picker("", selection: $viewModel.translationDraftLanguageRaw) {
+                ForEach(TranslationTargetLanguage.allCases) { language in
+                    Text(language.title).tag(language.rawValue)
                 }
             }
+            .pickerStyle(.menu)
+            .labelsHidden()
 
-            Divider()
+            HStack(spacing: 10) {
+                Button(String(localized: "取消")) {
+                    viewModel.cancelTranslationLanguageSelection()
+                }
+                .controlSize(.small)
 
-            bottomBar
+                Button(String(localized: "开始翻译")) {
+                    viewModel.confirmTranslationLanguageSelection()
+                }
+                .controlSize(.small)
+                .keyboardShortcut(.defaultAction)
+            }
+            .frame(maxWidth: .infinity, alignment: .trailing)
         }
-        .frame(minWidth: 760, minHeight: 560)
+        .padding(16)
+        .frame(width: 280)
+        .background(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(Color(nsColor: .windowBackgroundColor))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .strokeBorder(Color.primary.opacity(0.08), lineWidth: 1)
+        )
+        .shadow(color: .black.opacity(0.16), radius: 18, y: 10)
     }
 
     private var header: some View {
@@ -336,6 +564,23 @@ private struct MeetingDetailWindowView: View {
             }
 
             Spacer(minLength: 12)
+
+            HStack(spacing: 8) {
+                Text(String(localized: "实时翻译"))
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(.secondary)
+
+                Toggle(
+                    "",
+                    isOn: Binding(
+                        get: { viewModel.translationEnabled },
+                        set: { viewModel.setTranslationEnabled($0) }
+                    )
+                )
+                .labelsHidden()
+                .toggleStyle(.switch)
+                .scaleEffect(0.82)
+            }
 
             Button(String(localized: "导出")) {
                 try? viewModel.export()
@@ -421,6 +666,7 @@ private struct MeetingDetailWindowView: View {
 private struct MeetingDetailSegmentRow: View {
     let segment: MeetingTranscriptSegment
     let isActive: Bool
+    let showsTranslation: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -440,13 +686,14 @@ private struct MeetingDetailSegmentRow: View {
                     .foregroundStyle(.primary)
                     .frame(maxWidth: .infinity, alignment: .leading)
 
-                if let translatedText = segment.translatedText?.trimmingCharacters(in: .whitespacesAndNewlines),
+                if showsTranslation,
+                   let translatedText = segment.translatedText?.trimmingCharacters(in: .whitespacesAndNewlines),
                    !translatedText.isEmpty {
                     Text(translatedText)
                         .font(.system(size: 13, weight: .medium))
                         .foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                } else if segment.isTranslationPending {
+                } else if showsTranslation, segment.isTranslationPending {
                     Text(String(localized: "Translating…"))
                         .font(.system(size: 12, weight: .medium))
                         .foregroundStyle(.secondary.opacity(0.75))

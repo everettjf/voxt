@@ -316,7 +316,11 @@ private struct HistoryRow: View {
                         Button(String(localized: "详情")) {
                             MeetingDetailWindowManager.shared.presentHistoryMeeting(
                                 entry: entry,
-                                audioURL: meetingAudioURL
+                                audioURL: meetingAudioURL,
+                                translationHandler: { @MainActor text, targetLanguage in
+                                    guard let appDelegate = NSApp.delegate as? AppDelegate else { return text }
+                                    return try await appDelegate.translateMeetingRealtimeText(text, targetLanguage: targetLanguage)
+                                }
                             )
                         }
                         .controlSize(.small)
