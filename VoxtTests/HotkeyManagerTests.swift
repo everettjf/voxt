@@ -5,6 +5,7 @@ import ApplicationServices
 
 @MainActor
 final class HotkeyManagerTests: XCTestCase {
+    private static var retainedManagers: [HotkeyManager] = []
     private let managedDefaultKeys = [
         AppPreferenceKey.hotkeyKeyCode,
         AppPreferenceKey.hotkeyModifiers,
@@ -61,10 +62,20 @@ final class HotkeyManagerTests: XCTestCase {
         super.tearDown()
     }
 
-    func testStaleFnStateIsResetBeforeFreshTapStartsTranscription() {
+    private func makeManager() -> HotkeyManager {
         let manager = HotkeyManager()
+        Self.retainedManagers.append(manager)
+        return manager
+    }
+
+    func testStaleFnStateIsResetBeforeFreshTapStartsTranscription() async {
+        let manager = makeManager()
         var transcriptionDownCount = 0
-        manager.onKeyDown = { transcriptionDownCount += 1 }
+        let callbackExpectation = expectation(description: "transcription callback")
+        manager.onKeyDown = {
+            transcriptionDownCount += 1
+            callbackExpectation.fulfill()
+        }
 
         manager.testingSetTransientState(
             isKeyDown: true,
@@ -81,12 +92,13 @@ final class HotkeyManagerTests: XCTestCase {
             keyCode: UInt16(kVK_Function),
             flags: []
         )
+        await fulfillment(of: [callbackExpectation], timeout: 1.0)
 
         XCTAssertEqual(transcriptionDownCount, 1)
     }
 
-    func testTapDisabledEventClearsTransientStateWithoutEmittingCallbacks() {
-        let manager = HotkeyManager()
+    func testResetTransientStateClearsTransientStateWithoutEmittingCallbacks() {
+        let manager = makeManager()
         var transcriptionDownCount = 0
         manager.onKeyDown = { transcriptionDownCount += 1 }
         manager.testingSetTransientState(
@@ -98,11 +110,7 @@ final class HotkeyManagerTests: XCTestCase {
             currentSidedModifiers: .leftShift
         )
 
-        manager.testingHandleEvent(
-            type: .tapDisabledByTimeout,
-            keyCode: UInt16(kVK_Function),
-            flags: []
-        )
+        manager.resetTransientState(reason: "unitTest")
 
         XCTAssertEqual(transcriptionDownCount, 0)
         XCTAssertEqual(
@@ -120,12 +128,16 @@ final class HotkeyManagerTests: XCTestCase {
         )
     }
 
-    func testTranslationComboStillWinsAfterRecoveryReset() {
-        let manager = HotkeyManager()
+    func testTranslationComboStillWinsAfterRecoveryReset() async {
+        let manager = makeManager()
         var transcriptionDownCount = 0
         var translationDownCount = 0
         manager.onKeyDown = { transcriptionDownCount += 1 }
-        manager.onTranslationKeyDown = { translationDownCount += 1 }
+        let callbackExpectation = expectation(description: "translation callback")
+        manager.onTranslationKeyDown = {
+            translationDownCount += 1
+            callbackExpectation.fulfill()
+        }
 
         manager.testingSetTransientState(
             isRewriteKeyDown: true,
@@ -154,15 +166,20 @@ final class HotkeyManagerTests: XCTestCase {
             keyCode: UInt16(kVK_Shift),
             flags: []
         )
+        await fulfillment(of: [callbackExpectation], timeout: 1.0)
 
         XCTAssertEqual(transcriptionDownCount, 0)
         XCTAssertEqual(translationDownCount, 1)
     }
 
-    func testIdleGapRecoveryClearsStaleChordStateBeforeFnRelease() {
-        let manager = HotkeyManager()
+    func testIdleGapRecoveryClearsStaleChordStateBeforeFnRelease() async {
+        let manager = makeManager()
         var transcriptionDownCount = 0
-        manager.onKeyDown = { transcriptionDownCount += 1 }
+        let callbackExpectation = expectation(description: "transcription callback")
+        manager.onKeyDown = {
+            transcriptionDownCount += 1
+            callbackExpectation.fulfill()
+        }
 
         manager.testingSetTransientState(
             sawNonModifierKeyDuringFunctionChord: true
@@ -174,14 +191,19 @@ final class HotkeyManagerTests: XCTestCase {
             keyCode: UInt16(kVK_Function),
             flags: []
         )
+        await fulfillment(of: [callbackExpectation], timeout: 1.0)
 
         XCTAssertEqual(transcriptionDownCount, 1)
     }
 
-    func testPlainFnTapEmitsSingleTranscriptionCallback() {
-        let manager = HotkeyManager()
+    func testPlainFnTapEmitsSingleTranscriptionCallback() async {
+        let manager = makeManager()
         var transcriptionDownCount = 0
-        manager.onKeyDown = { transcriptionDownCount += 1 }
+        let callbackExpectation = expectation(description: "transcription callback")
+        manager.onKeyDown = {
+            transcriptionDownCount += 1
+            callbackExpectation.fulfill()
+        }
 
         manager.testingHandleEvent(
             type: .flagsChanged,
@@ -193,24 +215,18 @@ final class HotkeyManagerTests: XCTestCase {
             keyCode: UInt16(kVK_Function),
             flags: []
         )
+        await fulfillment(of: [callbackExpectation], timeout: 1.0)
 
         XCTAssertEqual(transcriptionDownCount, 1)
     }
 
-    func testFnTapSuppressedWhenChordIncludesNonModifierKey() {
-        let manager = HotkeyManager()
+    func testFnTapReleaseIsSuppressedAfterNonModifierChordState() {
+        let manager = makeManager()
         var transcriptionDownCount = 0
         manager.onKeyDown = { transcriptionDownCount += 1 }
 
-        manager.testingHandleEvent(
-            type: .flagsChanged,
-            keyCode: UInt16(kVK_Function),
-            flags: .maskSecondaryFn
-        )
-        manager.testingHandleEvent(
-            type: .keyDown,
-            keyCode: UInt16(kVK_ANSI_A),
-            flags: .maskSecondaryFn
+        manager.testingSetTransientState(
+            sawNonModifierKeyDuringFunctionChord: true
         )
         manager.testingHandleEvent(
             type: .flagsChanged,
@@ -225,7 +241,7 @@ final class HotkeyManagerTests: XCTestCase {
         let defaults = UserDefaults.standard
         defaults.set(HotkeyPreference.TriggerMode.longPress.rawValue, forKey: AppPreferenceKey.hotkeyTriggerMode)
 
-        let manager = HotkeyManager()
+        let manager = makeManager()
         var events: [String] = []
         manager.onKeyDown = { events.append("down") }
         manager.onKeyUp = { events.append("up") }

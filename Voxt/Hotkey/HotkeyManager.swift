@@ -52,6 +52,33 @@ class HotkeyManager {
     private var lastEventAt: Date?
     private let staleTapStateResetIdleThreshold: TimeInterval = 2.0
 
+    deinit {
+        retryTask?.cancel()
+        retryTask = nil
+
+        if let tap = eventTap {
+            CGEvent.tapEnable(tap: tap, enable: false)
+        }
+        if let source = runLoopSource {
+            CFRunLoopRemoveSource(CFRunLoopGetMain(), source, .commonModes)
+        }
+        eventTap = nil
+        runLoopSource = nil
+
+        pendingTranscriptionTapTask?.cancel()
+        pendingTranscriptionTapTask = nil
+        pendingTranslationTapTask?.cancel()
+        pendingTranslationTapTask = nil
+        pendingRewriteTapTask?.cancel()
+        pendingRewriteTapTask = nil
+        pendingTranscriptionLongPressReleaseTask?.cancel()
+        pendingTranscriptionLongPressReleaseTask = nil
+        pendingTranslationLongPressReleaseTask?.cancel()
+        pendingTranslationLongPressReleaseTask = nil
+        pendingRewriteLongPressReleaseTask?.cancel()
+        pendingRewriteLongPressReleaseTask = nil
+    }
+
     func start() {
         if eventTap != nil {
             return
@@ -1030,39 +1057,27 @@ class HotkeyManager {
     }
 
     private func emitKeyDown() {
-        Task { @MainActor in
-            onKeyDown?()
-        }
+        onKeyDown?()
     }
 
     private func emitKeyUp() {
-        Task { @MainActor in
-            onKeyUp?()
-        }
+        onKeyUp?()
     }
 
     private func emitTranslationKeyDown() {
-        Task { @MainActor in
-            onTranslationKeyDown?()
-        }
+        onTranslationKeyDown?()
     }
 
     private func emitTranslationKeyUp() {
-        Task { @MainActor in
-            onTranslationKeyUp?()
-        }
+        onTranslationKeyUp?()
     }
 
     private func emitRewriteKeyDown() {
-        Task { @MainActor in
-            onRewriteKeyDown?()
-        }
+        onRewriteKeyDown?()
     }
 
     private func emitRewriteKeyUp() {
-        Task { @MainActor in
-            onRewriteKeyUp?()
-        }
+        onRewriteKeyUp?()
     }
 
     private func debugDescription(for flags: CGEventFlags) -> String {
