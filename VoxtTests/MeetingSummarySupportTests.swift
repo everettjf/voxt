@@ -118,7 +118,7 @@ final class MeetingSummarySupportTests: XCTestCase {
 
         XCTAssertTrue(prompt.contains("\"meeting_summary\""))
         XCTAssertTrue(prompt.contains("\"todo_list\""))
-        XCTAssertTrue(prompt.contains("only line breaks using \"\\\\n\""))
+        XCTAssertTrue(prompt.contains("only line breaks using \"\\n\""))
     }
 
     func testDecodeSummaryParsesLegacyXMLPayload() {
