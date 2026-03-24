@@ -886,3 +886,5 @@
 "Latest" = "最新";
 "The transcript timeline for Me / Them will appear here once the meeting starts." = "会议开始后，这里会持续显示 我 / them 的时间线。";
 "Automatic scrolling pauses when you scroll away from the bottom." = "滚动离开底部时会暂停自动滚动。";
+"Hide Meeting Notes from Screen Sharing" = "不在屏幕共享中显示会议记录";
+"When enabled, the meeting transcript overlay uses a private window sharing mode and will not appear in screen sharing or screen recordings." = "开启后，会议转录悬浮层会使用私有窗口共享模式，不会出现在系统的屏幕共享或屏幕录制中。";

@@ -385,6 +385,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             AppPreferenceKey.escapeKeyCancelsOverlaySession: true,
             AppPreferenceKey.translateSelectedTextOnTranslationHotkey: true,
             AppPreferenceKey.meetingNotesBetaEnabled: false,
+            AppPreferenceKey.hideMeetingOverlayFromScreenSharing: false,
             AppPreferenceKey.meetingOverlayCollapsed: false,
             AppPreferenceKey.meetingRealtimeTranslateEnabled: false,
             AppPreferenceKey.meetingRealtimeTranslationTargetLanguage: "",

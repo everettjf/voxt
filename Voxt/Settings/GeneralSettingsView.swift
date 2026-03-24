@@ -19,6 +19,7 @@ struct GeneralSettingsView: View {
     @AppStorage(AppPreferenceKey.userMainLanguageCodes) private var userMainLanguageCodesRaw = UserMainLanguageOption.defaultStoredSelectionValue
     @AppStorage(AppPreferenceKey.translateSelectedTextOnTranslationHotkey) private var translateSelectedTextOnTranslationHotkey = true
     @AppStorage(AppPreferenceKey.meetingNotesBetaEnabled) private var meetingNotesBetaEnabled = false
+    @AppStorage(AppPreferenceKey.hideMeetingOverlayFromScreenSharing) private var hideMeetingOverlayFromScreenSharing = false
     @AppStorage(AppPreferenceKey.autoCopyWhenNoFocusedInput) private var autoCopyWhenNoFocusedInput = false
     @AppStorage(AppPreferenceKey.appEnhancementEnabled) private var appEnhancementEnabled = false
     @AppStorage(AppPreferenceKey.launchAtLogin) private var launchAtLogin = false
@@ -134,7 +135,9 @@ struct GeneralSettingsView: View {
                 overlayPosition: overlayPosition,
                 overlayCardOpacity: $overlayCardOpacity,
                 overlayCardCornerRadius: $overlayCardCornerRadius,
-                overlayScreenEdgeInset: $overlayScreenEdgeInset
+                overlayScreenEdgeInset: $overlayScreenEdgeInset,
+                meetingNotesBetaEnabled: $meetingNotesBetaEnabled,
+                hideMeetingOverlayFromScreenSharing: $hideMeetingOverlayFromScreenSharing
             )
             .settingsNavigationAnchor(.generalTranscriptionUI)
 

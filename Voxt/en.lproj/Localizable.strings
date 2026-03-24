@@ -886,3 +886,5 @@
 "Latest" = "Latest";
 "The transcript timeline for Me / Them will appear here once the meeting starts." = "The transcript timeline for Me / Them will appear here once the meeting starts.";
 "Automatic scrolling pauses when you scroll away from the bottom." = "Automatic scrolling pauses when you scroll away from the bottom.";
+"Hide Meeting Notes from Screen Sharing" = "Hide Meeting Notes from Screen Sharing";
+"When enabled, the meeting transcript overlay uses a private window sharing mode and will not appear in screen sharing or screen recordings." = "When enabled, the meeting transcript overlay uses a private window sharing mode and will not appear in screen sharing or screen recordings.";

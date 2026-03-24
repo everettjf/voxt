@@ -130,6 +130,8 @@ struct GeneralTranscriptionUICard: View {
     @Binding var overlayCardOpacity: Int
     @Binding var overlayCardCornerRadius: Int
     @Binding var overlayScreenEdgeInset: Int
+    @Binding var meetingNotesBetaEnabled: Bool
+    @Binding var hideMeetingOverlayFromScreenSharing: Bool
 
     var body: some View {
         GeneralSettingsCard(title: "Transcription UI") {
@@ -170,6 +172,18 @@ struct GeneralTranscriptionUICard: View {
                 width: 90,
                 unit: "pt"
             )
+
+            if meetingNotesBetaEnabled {
+                Toggle(isOn: $hideMeetingOverlayFromScreenSharing) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Hide Meeting Notes from Screen Sharing")
+                        Text("When enabled, the meeting transcript overlay uses a private window sharing mode and will not appear in screen sharing or screen recordings.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .toggleStyle(.switch)
+            }
         }
     }
 

@@ -67,6 +67,7 @@ enum ConfigurationTransferManager {
         var userMainLanguageCodes: [String]
         var translateSelectedTextOnTranslationHotkey: Bool
         var meetingNotesBetaEnabled: Bool
+        var hideMeetingOverlayFromScreenSharing: Bool
         var meetingOverlayCollapsed: Bool
         var meetingRealtimeTranslateEnabled: Bool
         var meetingRealtimeTranslationTargetLanguage: String
@@ -109,6 +110,7 @@ enum ConfigurationTransferManager {
             case userMainLanguageCodes
             case translateSelectedTextOnTranslationHotkey
             case meetingNotesBetaEnabled
+            case hideMeetingOverlayFromScreenSharing
             case meetingOverlayCollapsed
             case meetingRealtimeTranslateEnabled
             case meetingRealtimeTranslationTargetLanguage
@@ -156,6 +158,7 @@ enum ConfigurationTransferManager {
             userMainLanguageCodes: [String],
             translateSelectedTextOnTranslationHotkey: Bool,
             meetingNotesBetaEnabled: Bool,
+            hideMeetingOverlayFromScreenSharing: Bool,
             meetingOverlayCollapsed: Bool,
             meetingRealtimeTranslateEnabled: Bool,
             meetingRealtimeTranslationTargetLanguage: String,
@@ -198,6 +201,7 @@ enum ConfigurationTransferManager {
             self.userMainLanguageCodes = UserMainLanguageOption.sanitizedSelection(userMainLanguageCodes)
             self.translateSelectedTextOnTranslationHotkey = translateSelectedTextOnTranslationHotkey
             self.meetingNotesBetaEnabled = meetingNotesBetaEnabled
+            self.hideMeetingOverlayFromScreenSharing = hideMeetingOverlayFromScreenSharing
             self.meetingOverlayCollapsed = meetingOverlayCollapsed
             self.meetingRealtimeTranslateEnabled = meetingRealtimeTranslateEnabled
             self.meetingRealtimeTranslationTargetLanguage = meetingRealtimeTranslationTargetLanguage
@@ -250,6 +254,7 @@ enum ConfigurationTransferManager {
             )
             translateSelectedTextOnTranslationHotkey = try container.decode(Bool.self, forKey: .translateSelectedTextOnTranslationHotkey)
             meetingNotesBetaEnabled = try container.decodeIfPresent(Bool.self, forKey: .meetingNotesBetaEnabled) ?? false
+            hideMeetingOverlayFromScreenSharing = try container.decodeIfPresent(Bool.self, forKey: .hideMeetingOverlayFromScreenSharing) ?? false
             meetingOverlayCollapsed = try container.decodeIfPresent(Bool.self, forKey: .meetingOverlayCollapsed) ?? false
             meetingRealtimeTranslateEnabled = try container.decodeIfPresent(Bool.self, forKey: .meetingRealtimeTranslateEnabled) ?? false
             meetingRealtimeTranslationTargetLanguage = try container.decodeIfPresent(String.self, forKey: .meetingRealtimeTranslationTargetLanguage) ?? ""
@@ -294,6 +299,7 @@ enum ConfigurationTransferManager {
             try container.encode(userMainLanguageCodes, forKey: .userMainLanguageCodes)
             try container.encode(translateSelectedTextOnTranslationHotkey, forKey: .translateSelectedTextOnTranslationHotkey)
             try container.encode(meetingNotesBetaEnabled, forKey: .meetingNotesBetaEnabled)
+            try container.encode(hideMeetingOverlayFromScreenSharing, forKey: .hideMeetingOverlayFromScreenSharing)
             try container.encode(meetingOverlayCollapsed, forKey: .meetingOverlayCollapsed)
             try container.encode(meetingRealtimeTranslateEnabled, forKey: .meetingRealtimeTranslateEnabled)
             try container.encode(meetingRealtimeTranslationTargetLanguage, forKey: .meetingRealtimeTranslationTargetLanguage)
@@ -908,6 +914,7 @@ enum ConfigurationTransferManager {
             ),
             translateSelectedTextOnTranslationHotkey: defaults.object(forKey: AppPreferenceKey.translateSelectedTextOnTranslationHotkey) as? Bool ?? true,
             meetingNotesBetaEnabled: defaults.object(forKey: AppPreferenceKey.meetingNotesBetaEnabled) as? Bool ?? false,
+            hideMeetingOverlayFromScreenSharing: defaults.object(forKey: AppPreferenceKey.hideMeetingOverlayFromScreenSharing) as? Bool ?? false,
             meetingOverlayCollapsed: defaults.object(forKey: AppPreferenceKey.meetingOverlayCollapsed) as? Bool ?? false,
             meetingRealtimeTranslateEnabled: defaults.object(forKey: AppPreferenceKey.meetingRealtimeTranslateEnabled) as? Bool ?? false,
             meetingRealtimeTranslationTargetLanguage: defaults.string(forKey: AppPreferenceKey.meetingRealtimeTranslationTargetLanguage) ?? "",
@@ -1039,6 +1046,7 @@ enum ConfigurationTransferManager {
         )
         defaults.set(general.translateSelectedTextOnTranslationHotkey, forKey: AppPreferenceKey.translateSelectedTextOnTranslationHotkey)
         defaults.set(general.meetingNotesBetaEnabled, forKey: AppPreferenceKey.meetingNotesBetaEnabled)
+        defaults.set(general.hideMeetingOverlayFromScreenSharing, forKey: AppPreferenceKey.hideMeetingOverlayFromScreenSharing)
         defaults.set(general.meetingOverlayCollapsed, forKey: AppPreferenceKey.meetingOverlayCollapsed)
         defaults.set(general.meetingRealtimeTranslateEnabled, forKey: AppPreferenceKey.meetingRealtimeTranslateEnabled)
         defaults.set(general.meetingRealtimeTranslationTargetLanguage, forKey: AppPreferenceKey.meetingRealtimeTranslationTargetLanguage)

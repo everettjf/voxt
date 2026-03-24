@@ -61,6 +61,7 @@ enum AppPreferenceKey {
     static let userMainLanguageCodes = "userMainLanguageCodes"
     static let translateSelectedTextOnTranslationHotkey = "translateSelectedTextOnTranslationHotkey"
     static let meetingNotesBetaEnabled = "meetingNotesBetaEnabled"
+    static let hideMeetingOverlayFromScreenSharing = "hideMeetingOverlayFromScreenSharing"
     static let meetingOverlayCollapsed = "meetingOverlayCollapsed"
     static let meetingRealtimeTranslateEnabled = "meetingRealtimeTranslateEnabled"
     static let meetingRealtimeTranslationTargetLanguage = "meetingRealtimeTranslationTargetLanguage"

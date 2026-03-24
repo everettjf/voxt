@@ -35,7 +35,7 @@ final class MeetingOverlayWindow: NSPanel {
         backgroundColor = .clear
         hasShadow = false
         isMovableByWindowBackground = false
-        sharingType = .none
+        applyScreenSharingPreference()
         collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         ignoresMouseEvents = false
 
@@ -54,6 +54,7 @@ final class MeetingOverlayWindow: NSPanel {
     func show(state: MeetingOverlayState, position: OverlayPosition) {
         currentPosition = position
         state.isPresented = true
+        applyScreenSharingPreference()
 
         let content = MeetingOverlayContainerView(
             state: state,
@@ -175,5 +176,12 @@ final class MeetingOverlayWindow: NSPanel {
     private var overlayScreenEdgeInset: CGFloat {
         let storedValue = UserDefaults.standard.object(forKey: AppPreferenceKey.overlayScreenEdgeInset) as? Int ?? 30
         return CGFloat(min(max(storedValue, 0), 120))
+    }
+
+    private func applyScreenSharingPreference() {
+        let hideFromScreenSharing = UserDefaults.standard.bool(
+            forKey: AppPreferenceKey.hideMeetingOverlayFromScreenSharing
+        )
+        sharingType = hideFromScreenSharing ? .none : .readOnly
     }
 }

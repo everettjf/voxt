@@ -154,6 +154,7 @@ final class ConfigurationTransferManagerTests: XCTestCase {
         XCTAssertEqual(decoded.trackedMicrophoneRecords, [TrackedMicrophoneRecord(uid: "usb-mic", lastKnownName: "USB Mic")])
         XCTAssertEqual(decoded.overlayCardOpacity, 82)
         XCTAssertEqual(decoded.userMainLanguageCodes, UserMainLanguageOption.defaultSelectionCodes())
+        XCTAssertFalse(decoded.hideMeetingOverlayFromScreenSharing)
         XCTAssertEqual(decoded.meetingRealtimeTranslationTargetLanguage, "")
         XCTAssertFalse(decoded.alwaysShowRewriteAnswerCard)
     }
