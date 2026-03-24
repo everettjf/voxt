@@ -150,9 +150,15 @@ extension AppDelegate {
         guard meetingSessionCoordinator.isActive else { return }
         meetingDetailWindowManager.presentLiveMeeting(
             state: meetingSessionCoordinator.overlayState,
-            translationHandler: { @MainActor [weak self] text, targetLanguage in
-                guard let self else { return text }
-                return try await self.translateMeetingRealtimeText(text, targetLanguage: targetLanguage)
+            initialSummarySettings: currentMeetingSummarySettingsSnapshot(),
+            summaryModelOptionsProvider: { @MainActor in
+                self.meetingSummaryModelOptions()
+            },
+            summarySettingsProvider: { @MainActor in
+                self.currentMeetingSummarySettingsSnapshot()
+            },
+            translationHandler: { @MainActor text, targetLanguage in
+                try await self.translateMeetingRealtimeText(text, targetLanguage: targetLanguage)
             }
         )
     }

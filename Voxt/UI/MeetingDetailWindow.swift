@@ -2,11 +2,19 @@ import AppKit
 import AVFoundation
 import Combine
 import SwiftUI
-import UniformTypeIdentifiers
 
 @MainActor
 final class MeetingDetailWindowManager {
     static let shared = MeetingDetailWindowManager()
+
+    typealias TranslationHandler = @MainActor (String, TranslationTargetLanguage) async throws -> String
+    typealias SummarySettingsProvider = @MainActor () -> MeetingSummarySettingsSnapshot
+    typealias SummaryModelOptionsProvider = @MainActor () -> [MeetingSummaryModelOption]
+    typealias SummaryStatusProvider = @MainActor (MeetingSummarySettingsSnapshot) -> MeetingSummaryProviderStatus
+    typealias SummaryGenerator = @MainActor (String, MeetingSummarySettingsSnapshot) async throws -> MeetingSummarySnapshot
+    typealias SummaryPersistence = @MainActor (UUID, MeetingSummarySnapshot?) -> TranscriptionHistoryEntry?
+    typealias SummaryChatAnswerer = @MainActor (String, MeetingSummarySnapshot?, [MeetingSummaryChatMessage], String, MeetingSummarySettingsSnapshot) async throws -> String
+    typealias SummaryChatPersistence = @MainActor (UUID, [MeetingSummaryChatMessage]) -> TranscriptionHistoryEntry?
 
     private var historyControllers: [UUID: MeetingDetailWindowController] = [:]
     private var liveController: MeetingDetailWindowController?
@@ -14,21 +22,47 @@ final class MeetingDetailWindowManager {
     func presentHistoryMeeting(
         entry: TranscriptionHistoryEntry,
         audioURL: URL?,
-        translationHandler: @escaping @MainActor (String, TranslationTargetLanguage) async throws -> String
+        initialSummarySettings: MeetingSummarySettingsSnapshot,
+        summaryModelOptionsProvider: @escaping SummaryModelOptionsProvider,
+        summarySettingsProvider: @escaping SummarySettingsProvider,
+        translationHandler: @escaping TranslationHandler,
+        summaryStatusProvider: @escaping SummaryStatusProvider,
+        summaryGenerator: @escaping SummaryGenerator,
+        summaryPersistence: @escaping SummaryPersistence,
+        summaryChatAnswerer: @escaping SummaryChatAnswerer,
+        summaryChatPersistence: @escaping SummaryChatPersistence
     ) {
         if let controller = historyControllers[entry.id] {
+            controller.refreshSummaryConfiguration(
+                settings: summarySettingsProvider(),
+                modelOptions: summaryModelOptionsProvider()
+            )
             controller.showWindow(nil)
             controller.window?.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: true)
             return
         }
 
+        let summaryModelOptions = summaryModelOptionsProvider()
+
         let viewModel = MeetingDetailViewModel(
             title: String(localized: "Meeting Details"),
             subtitle: entry.createdAt.formatted(date: .abbreviated, time: .shortened),
+            historyEntryID: entry.id,
+            initialSummary: entry.meetingSummary,
+            initialSummaryChatMessages: entry.meetingSummaryChatMessages ?? [],
+            initialSummarySettings: initialSummarySettings,
+            summaryModelOptions: summaryModelOptions,
+            summarySettingsProvider: summarySettingsProvider,
+            summaryModelOptionsProvider: summaryModelOptionsProvider,
             segments: entry.meetingSegments ?? [],
             audioURL: audioURL,
-            translationHandler: translationHandler
+            translationHandler: translationHandler,
+            summaryStatusProvider: summaryStatusProvider,
+            summaryGenerator: summaryGenerator,
+            summaryPersistence: summaryPersistence,
+            summaryChatAnswerer: summaryChatAnswerer,
+            summaryChatPersistence: summaryChatPersistence
         )
         let controller = MeetingDetailWindowController(viewModel: viewModel) { [weak self] in
             self?.historyControllers[entry.id] = nil
@@ -41,9 +75,16 @@ final class MeetingDetailWindowManager {
 
     func presentLiveMeeting(
         state: MeetingOverlayState,
-        translationHandler: @escaping @MainActor (String, TranslationTargetLanguage) async throws -> String
+        initialSummarySettings: MeetingSummarySettingsSnapshot,
+        summaryModelOptionsProvider: @escaping SummaryModelOptionsProvider,
+        summarySettingsProvider: @escaping SummarySettingsProvider,
+        translationHandler: @escaping TranslationHandler
     ) {
         if let controller = liveController {
+            controller.refreshSummaryConfiguration(
+                settings: summarySettingsProvider(),
+                modelOptions: summaryModelOptionsProvider()
+            )
             controller.showWindow(nil)
             controller.window?.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: true)
@@ -52,6 +93,10 @@ final class MeetingDetailWindowManager {
 
         let viewModel = MeetingDetailViewModel(
             liveState: state,
+            initialSummarySettings: initialSummarySettings,
+            summaryModelOptions: summaryModelOptionsProvider(),
+            summarySettingsProvider: summarySettingsProvider,
+            summaryModelOptionsProvider: summaryModelOptionsProvider,
             translationHandler: translationHandler
         )
         let controller = MeetingDetailWindowController(viewModel: viewModel) { [weak self] in
@@ -77,20 +122,33 @@ private final class MeetingDetailWindowController: NSWindowController, NSWindowD
         self.onClose = onClose
 
         let rootView = MeetingDetailWindowView(viewModel: viewModel)
-        let hostingView = NSHostingView(rootView: rootView)
+        let hostingController = NSHostingController(rootView: rootView)
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 820, height: 620),
-            styleMask: [.titled, .closable, .miniaturizable, .resizable],
+            contentRect: NSRect(x: 0, y: 0, width: 1040, height: 700),
+            styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
             backing: .buffered,
             defer: false
         )
-        window.contentView = hostingView
+        window.contentViewController = hostingController
         window.title = AppLocalization.localizedString("Meeting Details")
         window.center()
         window.setFrameAutosaveName("VoxtMeetingDetailWindow")
+        window.titleVisibility = .hidden
+        window.titlebarAppearsTransparent = true
+        window.toolbar = nil
+        window.isMovableByWindowBackground = false
+        window.isReleasedWhenClosed = false
+        window.isOpaque = false
+        window.backgroundColor = .clear
+        window.hasShadow = true
 
         super.init(window: window)
         window.delegate = self
+        window.standardWindowButton(.closeButton)?.isHidden = false
+        window.standardWindowButton(.miniaturizeButton)?.isHidden = false
+        window.standardWindowButton(.zoomButton)?.isHidden = false
+        positionWindowTrafficLightButtons(window)
+        scheduleTrafficLightButtonPositionUpdate(for: window)
     }
 
     @available(*, unavailable)
@@ -101,283 +159,63 @@ private final class MeetingDetailWindowController: NSWindowController, NSWindowD
     func windowWillClose(_ notification: Notification) {
         onClose()
     }
-}
 
-@MainActor
-private final class MeetingDetailViewModel: ObservableObject {
-    enum Mode {
-        case history
-        case live
+    func windowDidResize(_ notification: Notification) {
+        guard let window else { return }
+        scheduleTrafficLightButtonPositionUpdate(for: window)
     }
 
-    @Published private(set) var title: String
-    @Published private(set) var subtitle: String
-    @Published private(set) var segments: [MeetingTranscriptSegment]
-    @Published private(set) var isPaused = false
-    @Published var translationEnabled: Bool
-    @Published var isTranslationLanguagePickerPresented = false
-    @Published var translationDraftLanguageRaw: String
+    func windowDidBecomeKey(_ notification: Notification) {
+        guard let window else { return }
+        scheduleTrafficLightButtonPositionUpdate(for: window)
+    }
 
-    let mode: Mode
-    let audioURL: URL?
-
-    private let translationHandler: @MainActor (String, TranslationTargetLanguage) async throws -> String
-    private var cancellables = Set<AnyCancellable>()
-    private var translationTasks: [UUID: Task<Void, Never>] = [:]
-
-    init(
-        title: String,
-        subtitle: String,
-        segments: [MeetingTranscriptSegment],
-        audioURL: URL?,
-        translationHandler: @escaping @MainActor (String, TranslationTargetLanguage) async throws -> String
+    func refreshSummaryConfiguration(
+        settings: MeetingSummarySettingsSnapshot,
+        modelOptions: [MeetingSummaryModelOption]
     ) {
-        self.mode = .history
-        self.title = title
-        self.subtitle = subtitle
-        self.segments = segments
-        self.audioURL = audioURL
-        self.isPaused = true
-        self.translationHandler = translationHandler
-        let savedLanguage = UserDefaults.standard.string(forKey: AppPreferenceKey.meetingRealtimeTranslationTargetLanguage)
-        self.translationDraftLanguageRaw = savedLanguage?.isEmpty == false
-            ? savedLanguage!
-            : TranslationTargetLanguage.english.rawValue
-        self.translationEnabled = Self.segmentsContainTranslations(segments)
-    }
-
-    init(
-        liveState: MeetingOverlayState,
-        translationHandler: @escaping @MainActor (String, TranslationTargetLanguage) async throws -> String
-    ) {
-        self.mode = .live
-        self.title = String(localized: "Meeting Details")
-        self.subtitle = liveState.isPaused
-            ? String(localized: "Meeting Paused")
-            : String(localized: "Meeting In Progress")
-        self.segments = liveState.segments
-        self.audioURL = nil
-        self.isPaused = liveState.isPaused
-        self.translationHandler = translationHandler
-        let savedLanguage = UserDefaults.standard.string(forKey: AppPreferenceKey.meetingRealtimeTranslationTargetLanguage)
-        self.translationDraftLanguageRaw = savedLanguage?.isEmpty == false
-            ? savedLanguage!
-            : TranslationTargetLanguage.english.rawValue
-        self.translationEnabled = liveState.realtimeTranslateEnabled || Self.segmentsContainTranslations(liveState.segments)
-
-        liveState.$segments
-            .receive(on: RunLoop.main)
-            .sink { [weak self] segments in
-                self?.updateLiveSegments(segments)
-            }
-            .store(in: &cancellables)
-
-        Publishers.CombineLatest(liveState.$isPaused, liveState.$isRecording)
-            .receive(on: RunLoop.main)
-            .sink { [weak self] isPaused, isRecording in
-                self?.isPaused = isPaused
-                self?.subtitle = isPaused
-                    ? String(localized: "Meeting Paused")
-                    : (isRecording ? String(localized: "Meeting In Progress") : String(localized: "Meeting Ended"))
-            }
-            .store(in: &cancellables)
-
-        liveState.$realtimeTranslateEnabled
-            .receive(on: RunLoop.main)
-            .sink { [weak self] isEnabled in
-                guard let self else { return }
-                if isEnabled {
-                    self.translationEnabled = true
-                }
-            }
-            .store(in: &cancellables)
-    }
-
-    var canExport: Bool {
-        switch mode {
-        case .history:
-            return !segments.isEmpty
-        case .live:
-            return isPaused && !segments.isEmpty
+        guard let hostingController = window?.contentViewController as? NSHostingController<MeetingDetailWindowView> else {
+            return
         }
-    }
-
-    func export() throws {
-        try MeetingTranscriptExporter.export(
-            segments: segments,
-            defaultFilename: MeetingTranscriptExporter.defaultFilename(prefix: "Voxt-Meeting")
+        hostingController.rootView.viewModel.refreshSummaryConfiguration(
+            settings: settings,
+            modelOptions: modelOptions
         )
     }
 
-    func setTranslationEnabled(_ isEnabled: Bool) {
-        guard isEnabled else {
-            isTranslationLanguagePickerPresented = false
-            translationEnabled = false
-            cancelTranslationTasks()
-            clearPendingTranslationState()
-            return
-        }
-
-        if Self.segmentsContainTranslations(segments) {
-            translationEnabled = true
-            return
-        }
-
-        translationDraftLanguageRaw = resolvedStoredTranslationLanguage().rawValue
-        isTranslationLanguagePickerPresented = true
-        translationEnabled = false
-    }
-
-    func confirmTranslationLanguageSelection() {
-        guard let language = TranslationTargetLanguage(rawValue: translationDraftLanguageRaw) else {
-            cancelTranslationLanguageSelection()
-            return
-        }
-
-        UserDefaults.standard.set(
-            language.rawValue,
-            forKey: AppPreferenceKey.meetingRealtimeTranslationTargetLanguage
-        )
-        isTranslationLanguagePickerPresented = false
-        translationEnabled = true
-        translateEligibleSegmentsIfNeeded(targetLanguage: language)
-    }
-
-    func cancelTranslationLanguageSelection() {
-        isTranslationLanguagePickerPresented = false
-        translationEnabled = false
-    }
-
-    private func updateLiveSegments(_ incomingSegments: [MeetingTranscriptSegment]) {
-        segments = mergeSegmentsPreservingTranslationState(incomingSegments)
-        if translationEnabled {
-            translateEligibleSegmentsIfNeeded(targetLanguage: resolvedStoredTranslationLanguage())
-        }
-    }
-
-    private func mergeSegmentsPreservingTranslationState(_ incomingSegments: [MeetingTranscriptSegment]) -> [MeetingTranscriptSegment] {
-        let existingByID = Dictionary(uniqueKeysWithValues: segments.map { ($0.id, $0) })
-        return incomingSegments.map { incoming in
-            guard let existing = existingByID[incoming.id] else { return incoming }
-
-            let existingTranslatedText = existing.translatedText?.trimmingCharacters(in: .whitespacesAndNewlines)
-            let incomingTranslatedText = incoming.translatedText?.trimmingCharacters(in: .whitespacesAndNewlines)
-            let resolvedTranslatedText = incomingTranslatedText?.isEmpty == false
-                ? incomingTranslatedText
-                : (existingTranslatedText?.isEmpty == false ? existingTranslatedText : nil)
-            let textChanged =
-                existing.text.trimmingCharacters(in: .whitespacesAndNewlines) !=
-                incoming.text.trimmingCharacters(in: .whitespacesAndNewlines)
-            let shouldRefreshTranslation = (existingTranslatedText?.isEmpty == false) && textChanged
-
-            return MeetingTranscriptSegment(
-                id: incoming.id,
-                speaker: incoming.speaker,
-                startSeconds: incoming.startSeconds,
-                endSeconds: incoming.endSeconds,
-                text: incoming.text,
-                translatedText: resolvedTranslatedText,
-                isTranslationPending: incoming.isTranslationPending || existing.isTranslationPending || shouldRefreshTranslation
-            )
-        }
-    }
-
-    private func translateEligibleSegmentsIfNeeded(targetLanguage: TranslationTargetLanguage) {
-        for segment in segments where shouldTranslate(segment: segment) {
-            markSegment(segment.id) { current in
-                current.updatingTranslation(translatedText: current.translatedText, isTranslationPending: true)
-            }
-
-            translationTasks[segment.id]?.cancel()
-            translationTasks[segment.id] = Task { [weak self] in
-                guard let self else { return }
-                do {
-                    let translatedText = try await self.translationHandler(segment.text, targetLanguage)
-                    await MainActor.run {
-                        self.markSegment(segment.id) { current in
-                            current.updatingTranslation(
-                                translatedText: translatedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                                    ? nil
-                                    : translatedText.trimmingCharacters(in: .whitespacesAndNewlines),
-                                isTranslationPending: false
-                            )
-                        }
-                        self.translationTasks[segment.id] = nil
-                    }
-                } catch {
-                    await MainActor.run {
-                        self.markSegment(segment.id) { current in
-                            current.updatingTranslation(
-                                translatedText: current.translatedText,
-                                isTranslationPending: false
-                            )
-                        }
-                        self.translationTasks[segment.id] = nil
-                    }
-                }
-            }
-        }
-    }
-
-    private func shouldTranslate(segment: MeetingTranscriptSegment) -> Bool {
-        guard segment.speaker == .them else { return false }
-        let translatedText = segment.translatedText?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return (translatedText.isEmpty || segment.isTranslationPending) && translationTasks[segment.id] == nil
-    }
-
-    private func markSegment(_ id: UUID, update: (MeetingTranscriptSegment) -> MeetingTranscriptSegment) {
-        guard let index = segments.firstIndex(where: { $0.id == id }) else { return }
-        segments[index] = update(segments[index])
-    }
-
-    private func cancelTranslationTasks() {
-        translationTasks.values.forEach { $0.cancel() }
-        translationTasks.removeAll()
-    }
-
-    private func clearPendingTranslationState() {
-        segments = segments.map { segment in
-            guard segment.isTranslationPending else { return segment }
-            return segment.updatingTranslation(
-                translatedText: segment.translatedText,
-                isTranslationPending: false
-            )
-        }
-    }
-
-    private func resolvedStoredTranslationLanguage() -> TranslationTargetLanguage {
-        guard let rawValue = UserDefaults.standard.string(forKey: AppPreferenceKey.meetingRealtimeTranslationTargetLanguage),
-              let language = TranslationTargetLanguage(rawValue: rawValue)
+    private func positionWindowTrafficLightButtons(_ window: NSWindow) {
+        guard let closeButton = window.standardWindowButton(.closeButton),
+              let miniaturizeButton = window.standardWindowButton(.miniaturizeButton),
+              let zoomButton = window.standardWindowButton(.zoomButton),
+              let container = closeButton.superview
         else {
-            return .english
+            return
         }
-        return language
+
+        let leftInset: CGFloat = 15
+        let topInset: CGFloat = 21
+        let spacing: CGFloat = 6
+
+        let buttonSize = closeButton.frame.size
+        let y = container.bounds.height - topInset - buttonSize.height
+        let closeX = leftInset
+        let miniaturizeX = closeX + buttonSize.width + spacing
+        let zoomX = miniaturizeX + buttonSize.width + spacing
+
+        closeButton.translatesAutoresizingMaskIntoConstraints = true
+        miniaturizeButton.translatesAutoresizingMaskIntoConstraints = true
+        zoomButton.translatesAutoresizingMaskIntoConstraints = true
+
+        closeButton.setFrameOrigin(CGPoint(x: closeX, y: y))
+        miniaturizeButton.setFrameOrigin(CGPoint(x: miniaturizeX, y: y))
+        zoomButton.setFrameOrigin(CGPoint(x: zoomX, y: y))
     }
 
-    private static func segmentsContainTranslations(_ segments: [MeetingTranscriptSegment]) -> Bool {
-        segments.contains { segment in
-            !(segment.translatedText?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
+    private func scheduleTrafficLightButtonPositionUpdate(for window: NSWindow) {
+        DispatchQueue.main.async { [weak self, weak window] in
+            guard let self, let window else { return }
+            self.positionWindowTrafficLightButtons(window)
         }
-    }
-}
-
-@MainActor
-enum MeetingTranscriptExporter {
-    static func defaultFilename(prefix: String) -> String {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.dateFormat = "yyyy-MM-dd-HHmm"
-        return "\(prefix)-\(formatter.string(from: Date())).txt"
-    }
-
-    static func export(segments: [MeetingTranscriptSegment], defaultFilename: String) throws {
-        let panel = NSSavePanel()
-        panel.allowedContentTypes = [.plainText]
-        panel.nameFieldStringValue = defaultFilename
-        panel.canCreateDirectories = true
-
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        try MeetingTranscriptFormatter.joinedText(for: segments).write(to: url, atomically: true, encoding: .utf8)
     }
 }
 
@@ -458,58 +296,434 @@ private struct MeetingDetailWindowView: View {
 
     var body: some View {
         ZStack {
-            VStack(spacing: 0) {
-                header
+            GeometryReader { proxy in
+                let sidebarWidth = max(300, min(proxy.size.width / 3.0, 380))
 
-                Divider()
+                ZStack {
+                    windowShell
 
-                ScrollViewReader { proxy in
-                    ScrollView {
-                        LazyVStack(alignment: .leading, spacing: 10) {
-                            ForEach(viewModel.segments) { segment in
-                                MeetingDetailSegmentRow(
-                                    segment: segment,
-                                    isActive: activeSegmentID == segment.id,
-                                    showsTranslation: viewModel.translationEnabled
-                                )
-                                .id(segment.id)
-                            }
-                        }
-                        .padding(.horizontal, 18)
-                        .padding(.vertical, 16)
-                    }
-                    .onAppear {
-                        updateActiveSegment(for: playbackController.currentTime)
-                    }
-                    .onChange(of: playbackController.currentTime) { _, newValue in
-                        guard viewModel.mode == .history else { return }
-                        updateActiveSegment(for: newValue)
-                        guard !isScrubbing, let activeSegmentID else { return }
-                        withAnimation(.easeOut(duration: 0.18)) {
-                            proxy.scrollTo(activeSegmentID, anchor: .center)
+                    HStack(alignment: .top, spacing: 8) {
+                        leftPane
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+                        if !viewModel.isSummaryCollapsed {
+                            rightSidebar
+                                .frame(width: sidebarWidth)
+                                .frame(maxHeight: .infinity)
                         }
                     }
-                    .onChange(of: viewModel.segments) { _, newValue in
-                        guard viewModel.mode == .live, let newest = newValue.last?.id else { return }
-                        withAnimation(.easeOut(duration: 0.18)) {
-                            proxy.scrollTo(newest, anchor: .bottom)
-                        }
-                    }
+                    .padding(10)
                 }
-
-                Divider()
-
-                bottomBar
             }
-            .frame(minWidth: 760, minHeight: 560)
+            .frame(minWidth: 980, minHeight: 650)
+            .ignoresSafeArea(.container, edges: .top)
+            .onAppear {
+                viewModel.handleViewAppear()
+                updateActiveSegment(for: playbackController.currentTime)
+            }
 
             if viewModel.isTranslationLanguagePickerPresented {
-                Color.black.opacity(0.18)
+                Color.black.opacity(0.14)
                     .ignoresSafeArea()
 
                 translationLanguageDialog
             }
+
+            if viewModel.isSummarySettingsPresented {
+                Color.black.opacity(0.16)
+                    .ignoresSafeArea()
+
+                MeetingDetailSummarySettingsDialog(viewModel: viewModel)
+                    .padding(.horizontal, 28)
+                    .padding(.vertical, 24)
+            }
         }
+        .ignoresSafeArea(.container, edges: .top)
+    }
+
+    private var windowShell: some View {
+        RoundedRectangle(cornerRadius: 22, style: .continuous)
+            .fill(Color(nsColor: .windowBackgroundColor))
+            .overlay(
+                RoundedRectangle(cornerRadius: 22, style: .continuous)
+                    .strokeBorder(Color.black.opacity(0.06), lineWidth: 1)
+            )
+    }
+
+    private var leftPane: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            topToolbar
+
+            if viewModel.isSearchPresented {
+                transcriptSearchBar
+            }
+
+            transcriptPane
+
+            playbackPane
+        }
+    }
+
+    private var topToolbar: some View {
+        HStack(alignment: .center, spacing: 10) {
+            Color.clear
+                .frame(width: 62, height: 1)
+
+            transcriptTabPicker
+
+            Spacer(minLength: 8)
+
+            HStack(spacing: 8) {
+                Button(String(localized: "Search")) {
+                    viewModel.toggleSearchPresentation()
+                }
+                .buttonStyle(MeetingToolbarButtonStyle(isActive: viewModel.isSearchPresented))
+
+                Button(String(localized: "Translate")) {
+                    viewModel.toggleTranslation()
+                }
+                .buttonStyle(MeetingToolbarButtonStyle(isActive: viewModel.translationEnabled))
+
+                Button(String(localized: "Export")) {
+                    try? viewModel.export()
+                }
+                .buttonStyle(MeetingToolbarButtonStyle())
+                .disabled(!viewModel.canExport)
+
+                Rectangle()
+                    .fill(Color.black.opacity(0.08))
+                    .frame(width: 1, height: 18)
+
+                Button(
+                    viewModel.isSummaryCollapsed
+                        ? String(localized: "Expand Summary")
+                        : String(localized: "Collapse Summary")
+                ) {
+                    viewModel.toggleSummaryCollapsed()
+                }
+                .buttonStyle(MeetingToolbarButtonStyle(isActive: viewModel.isSummaryCollapsed))
+            }
+        }
+    }
+
+    private var transcriptTabPicker: some View {
+        HStack(spacing: 2) {
+            ForEach(MeetingDetailViewModel.TranscriptPresentationMode.allCases) { mode in
+                Button {
+                    viewModel.setTranscriptPresentationMode(mode)
+                } label: {
+                    Text(transcriptTabTitle(for: mode))
+                        .font(.system(size: 11.5, weight: .semibold))
+                        .padding(.horizontal, 10)
+                        .frame(height: 28)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(
+                    viewModel.transcriptPresentationMode == mode
+                        ? Color.accentColor
+                        : Color.secondary
+                )
+                .background(
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .fill(
+                            viewModel.transcriptPresentationMode == mode
+                                ? Color.accentColor.opacity(0.14)
+                                : .clear
+                        )
+                )
+                .overlay {
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .stroke(
+                            viewModel.transcriptPresentationMode == mode
+                                ? Color.accentColor.opacity(0.45)
+                                : .clear,
+                            lineWidth: 1
+                        )
+                }
+            }
+        }
+        .padding(2)
+        .fixedSize(horizontal: true, vertical: false)
+        .background(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(Color(nsColor: .controlBackgroundColor))
+        )
+        .overlay {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(Color.primary.opacity(0.08), lineWidth: 1)
+        }
+    }
+
+    private func transcriptTabTitle(for mode: MeetingDetailViewModel.TranscriptPresentationMode) -> String {
+        switch mode {
+        case .timeline:
+            return String(localized: "Timeline")
+        case .speakerMarks:
+            return String(localized: "Speaker Marks")
+        }
+    }
+
+    private var transcriptSearchBar: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(.secondary)
+
+            TextField(String(localized: "Search transcript"), text: $viewModel.searchQuery)
+                .textFieldStyle(.plain)
+
+            if !viewModel.searchQuery.isEmpty {
+                Button {
+                    viewModel.searchQuery = ""
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(panelBackground(cornerRadius: 12))
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .strokeBorder(Color.black.opacity(0.06), lineWidth: 1)
+        )
+    }
+
+    private var transcriptPane: some View {
+        ScrollViewReader { proxy in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    transcriptCaption
+
+                    if displayedSegments.isEmpty {
+                        transcriptEmptyState
+                    } else if viewModel.transcriptPresentationMode == .timeline {
+                        LazyVStack(alignment: .leading, spacing: 12) {
+                            ForEach(displayedSegments) { segment in
+                                MeetingDetailSegmentRow(
+                                    segment: segment,
+                                    isActive: activeSegmentID == segment.id,
+                                    showsTranslation: viewModel.translationEnabled,
+                                    isSearchMatch: segmentMatchesSearch(segment)
+                                )
+                                .id(segment.id)
+                            }
+                        }
+                    } else {
+                        speakerMarksPane
+                    }
+                }
+                .padding(16)
+            }
+            .background(panelBackground(cornerRadius: 16))
+            .overlay(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .strokeBorder(Color.black.opacity(0.06), lineWidth: 1)
+            )
+            .onChange(of: playbackController.currentTime) { _, newValue in
+                guard viewModel.mode == .history else { return }
+                updateActiveSegment(for: newValue)
+                guard !isScrubbing,
+                      viewModel.transcriptPresentationMode == .timeline,
+                      let activeSegmentID,
+                      displayedSegments.contains(where: { $0.id == activeSegmentID })
+                else {
+                    return
+                }
+                withAnimation(.easeOut(duration: 0.18)) {
+                    proxy.scrollTo(activeSegmentID, anchor: .center)
+                }
+            }
+            .onChange(of: viewModel.segments) { _, newValue in
+                guard viewModel.mode == .live,
+                      viewModel.transcriptPresentationMode == .timeline,
+                      let newest = displayedNewestSegmentID(in: newValue)
+                else {
+                    return
+                }
+                withAnimation(.easeOut(duration: 0.18)) {
+                    proxy.scrollTo(newest, anchor: .bottom)
+                }
+            }
+        }
+    }
+
+    private var transcriptCaption: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(String(localized: "Meeting Transcript"))
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundStyle(.primary)
+
+            Text(viewModel.subtitle)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    @ViewBuilder
+    private var transcriptEmptyState: some View {
+        if viewModel.segments.isEmpty {
+            VStack(spacing: 10) {
+                Text(String(localized: "The transcript timeline for Me / Them will appear here once the meeting starts."))
+                    .font(.system(size: 15, weight: .medium))
+                    .foregroundStyle(.secondary)
+
+                Text(String(localized: "This panel stays focused on the detailed transcript and synced playback."))
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(.secondary.opacity(0.85))
+            }
+            .frame(maxWidth: .infinity, minHeight: 280, alignment: .center)
+        } else {
+            VStack(spacing: 10) {
+                Text(String(localized: "No matching transcript segments."))
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(.secondary)
+
+                Text(String(localized: "Try a different keyword or clear the current search."))
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(.secondary.opacity(0.85))
+            }
+            .frame(maxWidth: .infinity, minHeight: 240, alignment: .center)
+        }
+    }
+
+    private var speakerMarksPane: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack(spacing: 10) {
+                speakerOverviewCard(for: .me)
+                speakerOverviewCard(for: .them)
+            }
+
+            ForEach([MeetingSpeaker.me, MeetingSpeaker.them], id: \.rawValue) { speaker in
+                let segments = displayedSegments.filter { $0.speaker == speaker }
+                if !segments.isEmpty {
+                    VStack(alignment: .leading, spacing: 10) {
+                        HStack(spacing: 8) {
+                            Text(speaker.displayTitle)
+                                .font(.system(size: 13, weight: .semibold))
+                                .foregroundStyle(.primary)
+
+                            Text(AppLocalization.format("%d", segments.count))
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundStyle(.secondary)
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 3)
+                                .background(
+                                    Capsule(style: .continuous)
+                                        .fill(Color.black.opacity(0.05))
+                                )
+                        }
+
+                        VStack(alignment: .leading, spacing: 10) {
+                            ForEach(segments) { segment in
+                                MeetingDetailSegmentRow(
+                                    segment: segment,
+                                    isActive: activeSegmentID == segment.id,
+                                    showsTranslation: viewModel.translationEnabled,
+                                    isSearchMatch: segmentMatchesSearch(segment)
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private func speakerOverviewCard(for speaker: MeetingSpeaker) -> some View {
+        let segments = displayedSegments.filter { $0.speaker == speaker }
+        let totalWords = segments.reduce(0) { partialResult, segment in
+            partialResult + segment.text.split(whereSeparator: \.isWhitespace).count
+        }
+
+        return VStack(alignment: .leading, spacing: 6) {
+            Text(speaker.displayTitle)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(.secondary)
+
+            Text(AppLocalization.format("%d", segments.count))
+                .font(.system(size: 22, weight: .semibold))
+                .foregroundStyle(.primary)
+
+            Text(AppLocalization.format("%d words", totalWords))
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(12)
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(Color(nsColor: .windowBackgroundColor).opacity(0.7))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .strokeBorder(Color.black.opacity(0.05), lineWidth: 1)
+        )
+    }
+
+    @ViewBuilder
+    private var playbackPane: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            if viewModel.mode == .history {
+                if playbackController.isAvailable {
+                    HStack(spacing: 12) {
+                        Button {
+                            playbackController.togglePlayPause()
+                        } label: {
+                            Image(systemName: playbackController.isPlaying ? "pause.fill" : "play.fill")
+                                .font(.system(size: 12, weight: .semibold))
+                                .frame(width: 34, height: 34)
+                                .background(
+                                    Circle()
+                                        .fill(Color.accentColor.opacity(0.16))
+                                )
+                        }
+                        .buttonStyle(.plain)
+
+                        Slider(
+                            value: Binding(
+                                get: { playbackController.currentTime },
+                                set: { playbackController.seek(to: $0) }
+                            ),
+                            in: 0...max(playbackController.duration, 0.1),
+                            onEditingChanged: { editing in
+                                isScrubbing = editing
+                            }
+                        )
+
+                        Text(timerLabel)
+                            .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                            .foregroundStyle(.secondary)
+                            .frame(width: 96, alignment: .trailing)
+                    }
+                } else {
+                    Text(String(localized: "No playable audio is available for this meeting record yet."))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            } else {
+                Text(
+                    viewModel.canExport
+                        ? String(localized: "The meeting is paused. You can export the current record.")
+                        : String(localized: "The meeting is in progress. Pause it to export the current record.")
+                )
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            }
+        }
+        .padding(16)
+        .background(panelBackground(cornerRadius: 16))
+        .overlay(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .strokeBorder(Color.black.opacity(0.06), lineWidth: 1)
+        )
+    }
+
+    private var rightSidebar: some View {
+        MeetingDetailSummarySidebar(viewModel: viewModel)
     }
 
     private var translationLanguageDialog: some View {
@@ -571,136 +785,65 @@ private struct MeetingDetailWindowView: View {
                 Button(String(localized: "Cancel")) {
                     viewModel.cancelTranslationLanguageSelection()
                 }
-                .controlSize(.small)
+                .buttonStyle(MeetingPillButtonStyle())
+
+                Spacer(minLength: 8)
 
                 Button(String(localized: "Start Translation")) {
                     viewModel.confirmTranslationLanguageSelection()
                 }
-                .controlSize(.small)
+                .buttonStyle(MeetingPrimaryButtonStyle())
                 .keyboardShortcut(.defaultAction)
             }
-            .frame(maxWidth: .infinity, alignment: .trailing)
         }
         .padding(16)
-        .frame(width: 280)
-        .background(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(Color(nsColor: .windowBackgroundColor))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .strokeBorder(Color.primary.opacity(0.08), lineWidth: 1)
-        )
-        .shadow(color: .black.opacity(0.16), radius: 18, y: 10)
-    }
-
-    private var header: some View {
-        HStack(alignment: .center, spacing: 12) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(viewModel.title)
-                    .font(.headline)
-                Text(viewModel.subtitle)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-
-            Spacer(minLength: 12)
-
-            HStack(spacing: 8) {
-                Text(String(localized: "Realtime Translation"))
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(.secondary)
-
-                Toggle(
-                    "",
-                    isOn: Binding(
-                        get: { viewModel.translationEnabled },
-                        set: { viewModel.setTranslationEnabled($0) }
-                    )
-                )
-                .labelsHidden()
-                .toggleStyle(.switch)
-                .scaleEffect(0.82)
-            }
-
-            Button(String(localized: "Export")) {
-                try? viewModel.export()
-            }
-            .controlSize(.small)
-            .disabled(!viewModel.canExport)
-        }
-        .padding(.horizontal, 18)
-        .padding(.vertical, 16)
-    }
-
-    @ViewBuilder
-    private var bottomBar: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            if viewModel.mode == .history {
-                if playbackController.isAvailable {
-                    HStack(spacing: 10) {
-                        Button {
-                            playbackController.togglePlayPause()
-                        } label: {
-                            Image(systemName: playbackController.isPlaying ? "pause.fill" : "play.fill")
-                                .font(.system(size: 12, weight: .semibold))
-                                .frame(width: 28, height: 28)
-                                .background(
-                                    Circle()
-                                        .fill(Color.accentColor.opacity(0.12))
-                                )
-                        }
-                        .buttonStyle(.plain)
-
-                        Slider(
-                            value: Binding(
-                                get: { playbackController.currentTime },
-                                set: { playbackController.seek(to: $0) }
-                            ),
-                            in: 0...max(playbackController.duration, 0.1),
-                            onEditingChanged: { editing in
-                                isScrubbing = editing
-                            }
-                        )
-
-                        Text(timerLabel)
-                            .font(.system(size: 11, weight: .semibold, design: .monospaced))
-                            .foregroundStyle(.secondary)
-                            .frame(width: 96, alignment: .trailing)
-                    }
-                } else {
-                    Text(String(localized: "No playable audio is available for this meeting record yet."))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-            } else {
-                Text(
-                    viewModel.canExport
-                        ? String(localized: "The meeting is paused. You can export the current record.")
-                        : String(localized: "The meeting is in progress. Pause it to export the current record.")
-                )
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            }
-        }
-        .padding(.horizontal, 18)
-        .padding(.vertical, 14)
+        .frame(width: 300)
         .background(
             RoundedRectangle(cornerRadius: 18, style: .continuous)
                 .fill(Color(nsColor: .windowBackgroundColor))
-                .shadow(color: .black.opacity(0.06), radius: 8, y: -2)
         )
-        .padding(.horizontal, 12)
-        .padding(.bottom, 12)
+        .overlay(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .strokeBorder(Color.primary.opacity(0.08), lineWidth: 1)
+        )
+        .shadow(color: .black.opacity(0.16), radius: 18, y: 10)
     }
 
     private var timerLabel: String {
         "\(MeetingTranscriptFormatter.timestampString(for: playbackController.currentTime)) / \(MeetingTranscriptFormatter.timestampString(for: playbackController.duration))"
     }
 
+    private var displayedSegments: [MeetingTranscriptSegment] {
+        let query = viewModel.searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else { return viewModel.segments }
+        return viewModel.segments.filter(segmentMatchesSearch)
+    }
+
+    private func displayedNewestSegmentID(in segments: [MeetingTranscriptSegment]) -> UUID? {
+        let query = viewModel.searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        if query.isEmpty {
+            return segments.last?.id
+        }
+        return segments.last(where: segmentMatchesSearch)?.id
+    }
+
+    private func segmentMatchesSearch(_ segment: MeetingTranscriptSegment) -> Bool {
+        let query = viewModel.searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else { return true }
+        return segment.text.localizedCaseInsensitiveContains(query)
+            || (segment.translatedText?.localizedCaseInsensitiveContains(query) ?? false)
+            || segment.speaker.displayTitle.localizedCaseInsensitiveContains(query)
+            || MeetingTranscriptFormatter.timestampString(for: segment.startSeconds).localizedCaseInsensitiveContains(query)
+    }
+
     private func updateActiveSegment(for currentTime: TimeInterval) {
         let newActiveSegment = viewModel.segments.last(where: { $0.startSeconds <= currentTime }) ?? viewModel.segments.first
         activeSegmentID = newActiveSegment?.id
+    }
+
+    private func panelBackground(cornerRadius: CGFloat) -> some View {
+        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+            .fill(Color(nsColor: .windowBackgroundColor).opacity(0.74))
     }
 }
 
@@ -708,9 +851,10 @@ private struct MeetingDetailSegmentRow: View {
     let segment: MeetingTranscriptSegment
     let isActive: Bool
     let showsTranslation: Bool
+    let isSearchMatch: Bool
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 9) {
             HStack(spacing: 8) {
                 Text(MeetingTranscriptFormatter.timestampString(for: segment.startSeconds))
                     .font(.system(size: 11, weight: .semibold, design: .monospaced))
@@ -718,37 +862,131 @@ private struct MeetingDetailSegmentRow: View {
 
                 Text(segment.speaker.displayTitle)
                     .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(segment.speaker == .me ? .blue : .green)
+                    .foregroundStyle(segment.speaker == .me ? Color(red: 0.16, green: 0.47, blue: 0.88) : Color(red: 0.12, green: 0.58, blue: 0.32))
+
+                Spacer(minLength: 8)
             }
 
-            VStack(alignment: .leading, spacing: 6) {
-                Text(segment.text)
-                    .font(.body)
-                    .foregroundStyle(.primary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+            Text(segment.text)
+                .font(.system(size: 14, weight: .medium))
+                .foregroundStyle(.primary.opacity(0.94))
+                .frame(maxWidth: .infinity, alignment: .leading)
 
-                if showsTranslation,
-                   let translatedText = segment.translatedText?.trimmingCharacters(in: .whitespacesAndNewlines),
-                   !translatedText.isEmpty {
-                    Text(translatedText)
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                } else if showsTranslation, segment.isTranslationPending {
-                    Text(String(localized: "Translating…"))
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(.secondary.opacity(0.75))
-                }
+            if showsTranslation,
+               let translatedText = segment.translatedText?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !translatedText.isEmpty {
+                Text(translatedText)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            } else if showsTranslation, segment.isTranslationPending {
+                Text(String(localized: "Translating…"))
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(.secondary.opacity(0.75))
             }
         }
-        .padding(12)
+        .padding(14)
         .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(isActive ? Color.accentColor.opacity(0.12) : Color(nsColor: .controlBackgroundColor))
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(backgroundColor)
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .stroke(isActive ? Color.accentColor.opacity(0.45) : Color.primary.opacity(0.06), lineWidth: 1)
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .stroke(borderColor, lineWidth: 1)
         )
+    }
+
+    private var backgroundColor: Color {
+        if isActive {
+            return Color.accentColor.opacity(0.12)
+        }
+        if isSearchMatch {
+            return Color.orange.opacity(0.12)
+        }
+        return Color.black.opacity(0.03)
+    }
+
+    private var borderColor: Color {
+        if isActive {
+            return Color.accentColor.opacity(0.38)
+        }
+        if isSearchMatch {
+            return Color.orange.opacity(0.28)
+        }
+        return Color.black.opacity(0.05)
+    }
+}
+
+struct MeetingToolbarButtonStyle: ButtonStyle {
+    var isActive = false
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.system(size: 12, weight: .medium))
+            .foregroundStyle(isActive ? Color.white : Color.primary)
+            .padding(.horizontal, 12)
+            .frame(height: 32)
+            .background(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(
+                        isActive
+                            ? Color.accentColor.opacity(configuration.isPressed ? 0.84 : 1)
+                            : Color.clear
+                    )
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .strokeBorder(
+                        isActive
+                            ? Color.accentColor.opacity(0.4)
+                            : Color.black.opacity(0.08),
+                        lineWidth: 1
+                    )
+            )
+            .opacity(configuration.isPressed ? 0.88 : 1)
+    }
+}
+
+struct MeetingPillButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.system(size: 12, weight: .semibold))
+            .foregroundStyle(.primary.opacity(configuration.isPressed ? 0.72 : 0.92))
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(Color.black.opacity(configuration.isPressed ? 0.08 : 0.05))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .strokeBorder(Color.black.opacity(0.06), lineWidth: 1)
+            )
+    }
+}
+
+struct MeetingPrimaryButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.system(size: 12, weight: .semibold))
+            .foregroundStyle(.white.opacity(configuration.isPressed ? 0.82 : 0.96))
+            .padding(.horizontal, 14)
+            .padding(.vertical, 8)
+            .background(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(Color.black.opacity(configuration.isPressed ? 0.86 : 0.92))
+            )
+    }
+}
+
+struct MeetingPrimaryIconButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .frame(width: 34, height: 34)
+            .background(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(Color.black.opacity(configuration.isPressed ? 0.86 : 0.92))
+            )
+            .opacity(configuration.isPressed ? 0.92 : 1)
     }
 }

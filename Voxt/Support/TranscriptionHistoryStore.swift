@@ -41,6 +41,8 @@ struct TranscriptionHistoryEntry: Identifiable, Codable, Hashable {
     let whisperWordTimings: [WhisperHistoryWordTiming]?
     let meetingSegments: [MeetingTranscriptSegment]?
     let meetingAudioRelativePath: String?
+    let meetingSummary: MeetingSummarySnapshot?
+    let meetingSummaryChatMessages: [MeetingSummaryChatMessage]?
     let dictionaryHitTerms: [String]
     let dictionaryCorrectedTerms: [String]
     let dictionarySuggestedTerms: [DictionarySuggestionSnapshot]
@@ -71,6 +73,8 @@ struct TranscriptionHistoryEntry: Identifiable, Codable, Hashable {
         case whisperWordTimings
         case meetingSegments
         case meetingAudioRelativePath
+        case meetingSummary
+        case meetingSummaryChatMessages
         case dictionaryHitTerms
         case dictionaryCorrectedTerms
         case dictionarySuggestedTerms
@@ -102,6 +106,8 @@ struct TranscriptionHistoryEntry: Identifiable, Codable, Hashable {
         whisperWordTimings: [WhisperHistoryWordTiming]?,
         meetingSegments: [MeetingTranscriptSegment]? = nil,
         meetingAudioRelativePath: String? = nil,
+        meetingSummary: MeetingSummarySnapshot? = nil,
+        meetingSummaryChatMessages: [MeetingSummaryChatMessage]? = nil,
         dictionaryHitTerms: [String],
         dictionaryCorrectedTerms: [String],
         dictionarySuggestedTerms: [DictionarySuggestionSnapshot]
@@ -131,6 +137,8 @@ struct TranscriptionHistoryEntry: Identifiable, Codable, Hashable {
         self.whisperWordTimings = whisperWordTimings
         self.meetingSegments = meetingSegments
         self.meetingAudioRelativePath = meetingAudioRelativePath
+        self.meetingSummary = meetingSummary
+        self.meetingSummaryChatMessages = meetingSummaryChatMessages
         self.dictionaryHitTerms = dictionaryHitTerms
         self.dictionaryCorrectedTerms = dictionaryCorrectedTerms
         self.dictionarySuggestedTerms = dictionarySuggestedTerms
@@ -165,6 +173,8 @@ struct TranscriptionHistoryEntry: Identifiable, Codable, Hashable {
         whisperWordTimings = try container.decodeIfPresent([WhisperHistoryWordTiming].self, forKey: .whisperWordTimings)
         meetingSegments = try container.decodeIfPresent([MeetingTranscriptSegment].self, forKey: .meetingSegments)
         meetingAudioRelativePath = try container.decodeIfPresent(String.self, forKey: .meetingAudioRelativePath)
+        meetingSummary = try container.decodeIfPresent(MeetingSummarySnapshot.self, forKey: .meetingSummary)
+        meetingSummaryChatMessages = try container.decodeIfPresent([MeetingSummaryChatMessage].self, forKey: .meetingSummaryChatMessages)
         dictionaryHitTerms = try container.decodeIfPresent([String].self, forKey: .dictionaryHitTerms) ?? []
         dictionaryCorrectedTerms = try container.decodeIfPresent([String].self, forKey: .dictionaryCorrectedTerms) ?? []
         dictionarySuggestedTerms = try container.decodeIfPresent([DictionarySuggestionSnapshot].self, forKey: .dictionarySuggestedTerms) ?? []
@@ -263,6 +273,7 @@ final class TranscriptionHistoryStore: ObservableObject {
         whisperWordTimings: [WhisperHistoryWordTiming]?,
         meetingSegments: [MeetingTranscriptSegment]? = nil,
         meetingAudioRelativePath: String? = nil,
+        meetingSummary: MeetingSummarySnapshot? = nil,
         dictionaryHitTerms: [String],
         dictionaryCorrectedTerms: [String],
         dictionarySuggestedTerms: [DictionarySuggestionSnapshot]
@@ -296,6 +307,7 @@ final class TranscriptionHistoryStore: ObservableObject {
             whisperWordTimings: whisperWordTimings,
             meetingSegments: meetingSegments,
             meetingAudioRelativePath: meetingAudioRelativePath,
+            meetingSummary: meetingSummary,
             dictionaryHitTerms: dictionaryHitTerms,
             dictionaryCorrectedTerms: dictionaryCorrectedTerms,
             dictionarySuggestedTerms: dictionarySuggestedTerms
@@ -370,6 +382,24 @@ final class TranscriptionHistoryStore: ObservableObject {
         guard didChange else { return }
         entries = Array(allEntries.prefix(loadedCount))
         persist()
+    }
+
+    @discardableResult
+    func updateMeetingSummary(_ summary: MeetingSummarySnapshot?, for entryID: UUID) -> TranscriptionHistoryEntry? {
+        guard let index = allEntries.firstIndex(where: { $0.id == entryID }) else { return nil }
+        allEntries[index] = allEntries[index].updatingMeetingSummary(summary)
+        entries = Array(allEntries.prefix(loadedCount))
+        persist()
+        return allEntries[index]
+    }
+
+    @discardableResult
+    func updateMeetingSummaryChatMessages(_ messages: [MeetingSummaryChatMessage], for entryID: UUID) -> TranscriptionHistoryEntry? {
+        guard let index = allEntries.firstIndex(where: { $0.id == entryID }) else { return nil }
+        allEntries[index] = allEntries[index].updatingMeetingSummaryChatMessages(messages)
+        entries = Array(allEntries.prefix(loadedCount))
+        persist()
+        return allEntries[index]
     }
 
     private func persist() {
@@ -482,6 +512,78 @@ private extension TranscriptionHistoryEntry {
             whisperWordTimings: whisperWordTimings,
             meetingSegments: meetingSegments,
             meetingAudioRelativePath: meetingAudioRelativePath,
+            meetingSummary: meetingSummary,
+            meetingSummaryChatMessages: meetingSummaryChatMessages,
+            dictionaryHitTerms: dictionaryHitTerms,
+            dictionaryCorrectedTerms: dictionaryCorrectedTerms,
+            dictionarySuggestedTerms: dictionarySuggestedTerms
+        )
+    }
+
+    func updatingMeetingSummary(_ meetingSummary: MeetingSummarySnapshot?) -> TranscriptionHistoryEntry {
+        TranscriptionHistoryEntry(
+            id: id,
+            text: text,
+            createdAt: createdAt,
+            transcriptionEngine: transcriptionEngine,
+            transcriptionModel: transcriptionModel,
+            enhancementMode: enhancementMode,
+            enhancementModel: enhancementModel,
+            kind: kind,
+            isTranslation: isTranslation,
+            audioDurationSeconds: audioDurationSeconds,
+            transcriptionProcessingDurationSeconds: transcriptionProcessingDurationSeconds,
+            llmDurationSeconds: llmDurationSeconds,
+            focusedAppName: focusedAppName,
+            matchedGroupID: matchedGroupID,
+            matchedAppGroupName: matchedAppGroupName,
+            matchedURLGroupName: matchedURLGroupName,
+            remoteASRProvider: remoteASRProvider,
+            remoteASRModel: remoteASRModel,
+            remoteASREndpoint: remoteASREndpoint,
+            remoteLLMProvider: remoteLLMProvider,
+            remoteLLMModel: remoteLLMModel,
+            remoteLLMEndpoint: remoteLLMEndpoint,
+            whisperWordTimings: whisperWordTimings,
+            meetingSegments: meetingSegments,
+            meetingAudioRelativePath: meetingAudioRelativePath,
+            meetingSummary: meetingSummary,
+            meetingSummaryChatMessages: meetingSummaryChatMessages,
+            dictionaryHitTerms: dictionaryHitTerms,
+            dictionaryCorrectedTerms: dictionaryCorrectedTerms,
+            dictionarySuggestedTerms: dictionarySuggestedTerms
+        )
+    }
+
+    func updatingMeetingSummaryChatMessages(_ meetingSummaryChatMessages: [MeetingSummaryChatMessage]) -> TranscriptionHistoryEntry {
+        TranscriptionHistoryEntry(
+            id: id,
+            text: text,
+            createdAt: createdAt,
+            transcriptionEngine: transcriptionEngine,
+            transcriptionModel: transcriptionModel,
+            enhancementMode: enhancementMode,
+            enhancementModel: enhancementModel,
+            kind: kind,
+            isTranslation: isTranslation,
+            audioDurationSeconds: audioDurationSeconds,
+            transcriptionProcessingDurationSeconds: transcriptionProcessingDurationSeconds,
+            llmDurationSeconds: llmDurationSeconds,
+            focusedAppName: focusedAppName,
+            matchedGroupID: matchedGroupID,
+            matchedAppGroupName: matchedAppGroupName,
+            matchedURLGroupName: matchedURLGroupName,
+            remoteASRProvider: remoteASRProvider,
+            remoteASRModel: remoteASRModel,
+            remoteASREndpoint: remoteASREndpoint,
+            remoteLLMProvider: remoteLLMProvider,
+            remoteLLMModel: remoteLLMModel,
+            remoteLLMEndpoint: remoteLLMEndpoint,
+            whisperWordTimings: whisperWordTimings,
+            meetingSegments: meetingSegments,
+            meetingAudioRelativePath: meetingAudioRelativePath,
+            meetingSummary: meetingSummary,
+            meetingSummaryChatMessages: meetingSummaryChatMessages,
             dictionaryHitTerms: dictionaryHitTerms,
             dictionaryCorrectedTerms: dictionaryCorrectedTerms,
             dictionarySuggestedTerms: dictionarySuggestedTerms

@@ -65,6 +65,11 @@ enum AppPreferenceKey {
     static let meetingOverlayCollapsed = "meetingOverlayCollapsed"
     static let meetingRealtimeTranslateEnabled = "meetingRealtimeTranslateEnabled"
     static let meetingRealtimeTranslationTargetLanguage = "meetingRealtimeTranslationTargetLanguage"
+    static let meetingSummaryAutoGenerate = "meetingSummaryAutoGenerate"
+    static let meetingSummaryLength = "meetingSummaryLength"
+    static let meetingSummaryStyle = "meetingSummaryStyle"
+    static let meetingSummaryPromptTemplate = "meetingSummaryPromptTemplate"
+    static let meetingSummaryModelSelection = "meetingSummaryModelSelection"
     static let voiceEndCommandEnabled = "voiceEndCommandEnabled"
     static let voiceEndCommandPreset = "voiceEndCommandPreset"
     static let voiceEndCommandText = "voiceEndCommandText"
@@ -173,6 +178,8 @@ enum AppPreferenceKey {
         3. If selected source text is empty, generate the requested content directly from the spoken instruction.
         4. Return only the final text to insert, with no explanations, markdown, labels, or commentary.
         """
+
+    static let defaultMeetingSummaryPrompt = MeetingSummarySupport.defaultPromptTemplate()
 
     static let asrUserMainLanguageTemplateVariable = "{{USER_MAIN_LANGUAGE}}"
 

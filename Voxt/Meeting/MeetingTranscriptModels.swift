@@ -152,6 +152,17 @@ enum MeetingTranscriptFormatter {
             .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    nonisolated static func llmInputText(for segments: [MeetingTranscriptSegment]) -> String {
+        segments
+            .compactMap { segment in
+                let text = segment.text.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !text.isEmpty else { return nil }
+                return "\(segment.speaker.displayTitle)：\(text)"
+            }
+            .joined(separator: "\n")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     nonisolated static func exportString(for segment: MeetingTranscriptSegment) -> String {
         var lines = ["\(timestampString(for: segment.startSeconds)) \(segment.speaker.displayTitle) \(segment.text)"]
         if let translatedText = segment.translatedText?.trimmingCharacters(in: .whitespacesAndNewlines),

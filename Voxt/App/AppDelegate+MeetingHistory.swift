@@ -43,13 +43,41 @@ extension AppDelegate {
             meetingDetailWindowManager.closeLiveWindow()
             let audioURL = historyStore.meetingAudioURL(for: entry)
             meetingOverlayWindow.hide { [weak self] in
-                self?.historyStore.reload()
-                self?.meetingDetailWindowManager.presentHistoryMeeting(
+                guard let appDelegate = self else { return }
+                appDelegate.historyStore.reload()
+                appDelegate.meetingDetailWindowManager.presentHistoryMeeting(
                     entry: entry,
                     audioURL: audioURL,
-                    translationHandler: { @MainActor [weak self] text, targetLanguage in
-                        guard let self else { return text }
-                        return try await self.translateMeetingRealtimeText(text, targetLanguage: targetLanguage)
+                    initialSummarySettings: appDelegate.currentMeetingSummarySettingsSnapshot(),
+                    summaryModelOptionsProvider: { @MainActor in
+                        appDelegate.meetingSummaryModelOptions()
+                    },
+                    summarySettingsProvider: { @MainActor in
+                        appDelegate.currentMeetingSummarySettingsSnapshot()
+                    },
+                    translationHandler: { @MainActor text, targetLanguage in
+                        try await appDelegate.translateMeetingRealtimeText(text, targetLanguage: targetLanguage)
+                    },
+                    summaryStatusProvider: { @MainActor settings in
+                        appDelegate.meetingSummaryProviderStatus(settings: settings)
+                    },
+                    summaryGenerator: { @MainActor transcript, settings in
+                        try await appDelegate.generateMeetingSummary(transcript: transcript, settings: settings)
+                    },
+                    summaryPersistence: { @MainActor entryID, summary in
+                        appDelegate.persistMeetingSummary(summary, for: entryID)
+                    },
+                    summaryChatAnswerer: { @MainActor transcript, summary, history, question, settings in
+                        try await appDelegate.answerMeetingSummaryFollowUp(
+                            transcript: transcript,
+                            summary: summary,
+                            history: history,
+                            question: question,
+                            settings: settings
+                        )
+                    },
+                    summaryChatPersistence: { @MainActor entryID, messages in
+                        appDelegate.persistMeetingSummaryChatMessages(messages, for: entryID)
                     }
                 )
             }

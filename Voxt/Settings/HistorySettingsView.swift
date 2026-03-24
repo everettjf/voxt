@@ -343,12 +343,43 @@ private struct HistoryRow: View {
 
                     if entry.kind == .meeting {
                         Button(String(localized: "Detail")) {
+                            guard let appDelegate = AppDelegate.shared else {
+                                VoxtLog.warning("History detail open skipped: AppDelegate.shared was unavailable.")
+                                return
+                            }
                             MeetingDetailWindowManager.shared.presentHistoryMeeting(
                                 entry: entry,
                                 audioURL: meetingAudioURL,
+                                initialSummarySettings: appDelegate.currentMeetingSummarySettingsSnapshot(),
+                                summaryModelOptionsProvider: { @MainActor in
+                                    appDelegate.meetingSummaryModelOptions()
+                                },
+                                summarySettingsProvider: { @MainActor in
+                                    appDelegate.currentMeetingSummarySettingsSnapshot()
+                                },
                                 translationHandler: { @MainActor text, targetLanguage in
-                                    guard let appDelegate = NSApp.delegate as? AppDelegate else { return text }
                                     return try await appDelegate.translateMeetingRealtimeText(text, targetLanguage: targetLanguage)
+                                },
+                                summaryStatusProvider: { @MainActor settings in
+                                    return appDelegate.meetingSummaryProviderStatus(settings: settings)
+                                },
+                                summaryGenerator: { @MainActor transcript, settings in
+                                    return try await appDelegate.generateMeetingSummary(transcript: transcript, settings: settings)
+                                },
+                                summaryPersistence: { @MainActor entryID, summary in
+                                    return appDelegate.persistMeetingSummary(summary, for: entryID)
+                                },
+                                summaryChatAnswerer: { @MainActor transcript, summary, history, question, settings in
+                                    return try await appDelegate.answerMeetingSummaryFollowUp(
+                                        transcript: transcript,
+                                        summary: summary,
+                                        history: history,
+                                        question: question,
+                                        settings: settings
+                                    )
+                                },
+                                summaryChatPersistence: { @MainActor entryID, messages in
+                                    return appDelegate.persistMeetingSummaryChatMessages(messages, for: entryID)
                                 }
                             )
                         }
